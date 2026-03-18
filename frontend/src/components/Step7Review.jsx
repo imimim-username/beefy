@@ -51,6 +51,9 @@ export function Step7Review({ form, onDryRun, onBack }) {
         <Row label="Token 0"    value={lp?.token0?.symbol} />
         <Row label="Token 1"    value={lp?.token1?.symbol} />
         {form.strategyType === 'chef' && <Row label="Pool ID" value={String(form.poolId)} />}
+        {form.strategyType === 'chef' && form.pendingRewardsFunctionName && (
+          <Row label="Pending Fn" value={form.pendingRewardsFunctionName} />
+        )}
         <Row label="Staking Contract" value={form.staking} addr />
       </div>
 

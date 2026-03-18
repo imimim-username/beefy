@@ -26,6 +26,7 @@ async function main() {
     vaultSymbol,
     unirouter,
     strategist: strategistParam,
+    pendingRewardsFunctionName,
     beefyAddresses,
     dryRun,
   } = params;
@@ -113,6 +114,22 @@ async function main() {
   );
   await txStrat.wait();
   console.log(`[chef-deploy] strategy initialized`);
+
+  // ── 5. Optional: set pending rewards function name ────────────────────────
+  if (pendingRewardsFunctionName) {
+    const txPending = await strategy.setPendingRewardsFunctionName(pendingRewardsFunctionName);
+    await txPending.wait();
+    console.log(`[chef-deploy] pendingRewardsFunctionName set to: ${pendingRewardsFunctionName}`);
+  }
+
+  // ── 6. Transfer vault ownership to Beefy multisig ─────────────────────────
+  const vaultOwner = beefyAddresses.vaultOwner;
+  if (vaultOwner && vaultOwner !== '0x0000000000000000000000000000000000000000') {
+    const vaultOwnerAbi = ['function transferOwnership(address newOwner) external'];
+    const vaultForOwner = new ethers.Contract(vaultAddress, vaultOwnerAbi, deployer);
+    await (await vaultForOwner.transferOwnership(vaultOwner)).wait();
+    console.log(`[chef-deploy] vault ownership transferred to: ${vaultOwner}`);
+  }
 
   const result = {
     vaultAddress,

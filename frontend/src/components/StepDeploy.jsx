@@ -58,7 +58,9 @@ export function StepDeploy({ form, dryResult, onBack, onReset }) {
       vaultName:    form.vaultName,
       vaultSymbol:  form.vaultSymbol,
       unirouter:    form.unirouter,
+      strategist:   form.strategist,
       isStable:     form.isStable,
+      pendingRewardsFunctionName: form.pendingRewardsFunctionName,
       beefyAddresses: chain?.beefyAddresses,
     };
   }

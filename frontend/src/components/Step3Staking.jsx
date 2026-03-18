@@ -7,6 +7,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
   const [stratType,  setStratType]  = useState(form.strategyType || 'chef');
   const [stakingAddr, setStakingAddr] = useState(form.staking || '');
   const [poolId,      setPoolId]     = useState(form.poolId ?? '');
+  const [pendingFn,   setPendingFn]  = useState(form.pendingRewardsFunctionName || '');
   const [status,   setStatus]   = useState('');
   const [msg,      setMsg]      = useState('');
 
@@ -49,6 +50,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         strategyType: stratType,
         staking: debounced,
         poolId: stratType === 'chef' ? Number(poolId) : undefined,
+        pendingRewardsFunctionName: stratType === 'chef' ? (pendingFn.trim() || undefined) : undefined,
         isStable: form.lpInfo?.isStable,
       }));
     }).catch(e => { setStatus('error'); setMsg(e.message); });
@@ -61,6 +63,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
     setMsg('');
     setStakingAddr('');
     setPoolId('');
+    setPendingFn('');
   }
 
   return (
@@ -118,6 +121,23 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
             value={poolId}
             onChange={e => { setPoolId(e.target.value); setStatus(''); setMsg(''); }}
             style={{ width: '120px' }}
+          />
+        </Field>
+      )}
+
+      {stratType === 'chef' && (
+        <Field
+          label="Pending Rewards Function (optional)"
+          hint={pendingFn.trim()
+            ? `Will call strategy.setPendingRewardsFunctionName("${pendingFn.trim()}")`
+            : 'Leave blank if the chef uses the standard deposit(pid,0) trick to claim'}
+        >
+          <input
+            className="pixel-input"
+            placeholder='e.g. pendingCake, pendingReward, pending…'
+            value={pendingFn}
+            onChange={e => setPendingFn(e.target.value)}
+            style={{ width: '280px' }}
           />
         </Field>
       )}
