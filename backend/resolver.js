@@ -49,7 +49,10 @@ function getProvider(chainId) {
   const chain = CHAINS[chainId];
   if (!chain) throw new Error(`Unknown chainId: ${chainId}`);
   const url = process.env[chain.rpcEnvKey] || chain.rpcFallback;
-  return new ethers.JsonRpcProvider(url);
+  // staticNetwork skips auto-detection so a bad RPC throws immediately instead
+  // of retrying forever (ethers v6 default behaviour).
+  const network = ethers.Network.from(chain.id);
+  return new ethers.JsonRpcProvider(url, network, { staticNetwork: network });
 }
 
 /**
@@ -62,7 +65,7 @@ async function resolveLpToken(chainId, lpAddress) {
   const provider = getProvider(chainId);
   const checksummed = ethers.getAddress(lpAddress);
 
-  // Try as Solidly pair (has `stable()`), fall back to standard pair
+  // Try as Solidly pair (has `stable()`), fall back to standard Uni-V2 pair
   let token0Addr, token1Addr, lpSymbol, isStable;
   try {
     const pair = new ethers.Contract(checksummed, SOLIDLY_PAIR_ABI, provider);
@@ -73,12 +76,28 @@ async function resolveLpToken(chainId, lpAddress) {
     ]);
     isStable = await pair.stable().catch(() => undefined);
   } catch (_e) {
-    const pair = new ethers.Contract(checksummed, PAIR_ABI, provider);
-    [token0Addr, token1Addr, lpSymbol] = await Promise.all([
-      pair.token0(),
-      pair.token1(),
-      pair.symbol().catch(() => 'LP'),
-    ]);
+    try {
+      const pair = new ethers.Contract(checksummed, PAIR_ABI, provider);
+      [token0Addr, token1Addr, lpSymbol] = await Promise.all([
+        pair.token0(),
+        pair.token1(),
+        pair.symbol().catch(() => 'LP'),
+      ]);
+    } catch (e2) {
+      // The contract exists but doesn't expose token0()/token1().
+      // Could be a Balancer pool, Curve pool, Uni-V3 pool, or similar.
+      // Try to read symbol for a better error message.
+      let sym = '';
+      try {
+        const erc20 = new ethers.Contract(checksummed, ERC20_ABI, provider);
+        sym = await erc20.symbol();
+      } catch (_e3) { /* ignore */ }
+      throw new Error(
+        `Not a supported LP token${sym ? ` (symbol: ${sym})` : ''} — ` +
+        `only Uniswap V2-style and Solidly/Velodrome-style pairs are supported. ` +
+        `Balancer, Curve, and Uniswap V3 pools are not compatible with these strategies.`
+      );
+    }
   }
 
   // Read token metadata in parallel

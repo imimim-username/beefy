@@ -51,7 +51,10 @@ export function Step1Network({ form, setForm, onNext }) {
           <div style={{ fontSize: '7px', color: 'var(--cyan)', display: 'grid', gap: '6px' }}>
             <div><span style={{ color: 'var(--gold)' }}>Chain ID: </span>{selected.id}</div>
             <div><span style={{ color: 'var(--gold)' }}>Native:   </span>{selected.nativeSymbol}</div>
-            <div className="addr">{selected.nativeToken}</div>
+            <div style={{ fontSize: '7px', color: 'var(--border)' }}>
+              <span style={{ color: 'var(--gold)' }}>W{selected.nativeSymbol}: </span>
+              <span className="addr" style={{ fontSize: '6px' }}>{selected.nativeToken}</span>
+            </div>
             <div>
               <a
                 href={selected.blockExplorer}

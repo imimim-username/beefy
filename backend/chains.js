@@ -19,7 +19,7 @@ const CHAINS = {
     name: 'Ethereum',
     shortName: 'ethereum',
     rpcEnvKey: 'RPC_ETH',
-    rpcFallback: 'https://eth.llamarpc.com',
+    rpcFallback: 'https://ethereum.publicnode.com',
     nativeSymbol: 'ETH',
     nativeToken: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', // WETH
     beefyAddresses: {
