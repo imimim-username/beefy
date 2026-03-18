@@ -1,0 +1,404 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   BeefyFinal — SNES-style CSS
+   Font: Press Start 2P (pixel font via Google Fonts)
+   Palette: dark navy bg, cyan accents, gold highlights, magenta alerts
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg:          #0d0d2b;
+  --bg2:         #161640;
+  --bg3:         #1e1e5a;
+  --border:      #3a3a8c;
+  --cyan:        #00e5ff;
+  --cyan-dim:    #0099bb;
+  --gold:        #ffd700;
+  --gold-dim:    #b8860b;
+  --green:       #39ff14;
+  --red:         #ff3366;
+  --magenta:     #ff00aa;
+  --white:       #e8e8ff;
+  --shadow:      #000033;
+  --font:        'Press Start 2P', monospace;
+  --px:          2px;          /* 1 "pixel" unit */
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--white);
+  font-family: var(--font);
+  font-size: 10px;
+  line-height: 1.8;
+  min-height: 100vh;
+  image-rendering: pixelated;
+}
+
+/* ── Pixel border mixin ─────────────────────────────────────────────────── */
+.pixel-box {
+  border: 4px solid var(--border);
+  box-shadow:
+    inset 2px 2px 0 #ffffff18,
+    inset -2px -2px 0 #00000050,
+    4px 4px 0 var(--shadow);
+  background: var(--bg2);
+}
+
+.pixel-box--gold {
+  border-color: var(--gold);
+  box-shadow:
+    inset 2px 2px 0 #ffff8830,
+    inset -2px -2px 0 #b8860b50,
+    4px 4px 0 var(--shadow);
+}
+
+.pixel-box--cyan {
+  border-color: var(--cyan);
+  box-shadow:
+    inset 2px 2px 0 #00e5ff20,
+    inset -2px -2px 0 #00000050,
+    4px 4px 0 var(--shadow);
+}
+
+.pixel-box--red {
+  border-color: var(--red);
+}
+
+.pixel-box--green {
+  border-color: var(--green);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-block;
+  padding: 10px 18px;
+  font-family: var(--font);
+  font-size: 9px;
+  cursor: pointer;
+  border: 3px solid var(--cyan);
+  background: var(--bg3);
+  color: var(--cyan);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  box-shadow: 3px 3px 0 var(--cyan-dim);
+  transition: transform 0.05s, box-shadow 0.05s;
+  user-select: none;
+}
+.btn:hover {
+  background: var(--cyan-dim);
+  color: var(--bg);
+}
+.btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--cyan-dim);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 3px 3px 0 var(--cyan-dim);
+}
+
+.btn--gold {
+  border-color: var(--gold);
+  color: var(--gold);
+  box-shadow: 3px 3px 0 var(--gold-dim);
+}
+.btn--gold:hover {
+  background: var(--gold-dim);
+  color: var(--bg);
+}
+
+.btn--green {
+  border-color: var(--green);
+  color: var(--green);
+  box-shadow: 3px 3px 0 #1a7a00;
+}
+.btn--green:hover { background: #1a7a00; color: var(--bg); }
+
+.btn--red {
+  border-color: var(--red);
+  color: var(--red);
+  box-shadow: 3px 3px 0 #880033;
+}
+.btn--red:hover { background: #880033; color: var(--white); }
+
+.btn--sm {
+  padding: 6px 10px;
+  font-size: 7px;
+}
+
+/* ── Inputs ─────────────────────────────────────────────────────────────── */
+.pixel-input {
+  width: 100%;
+  background: var(--bg);
+  border: 3px solid var(--border);
+  color: var(--white);
+  font-family: var(--font);
+  font-size: 9px;
+  padding: 8px 10px;
+  outline: none;
+  box-shadow: inset 2px 2px 0 #00000060;
+}
+.pixel-input:focus {
+  border-color: var(--cyan);
+  box-shadow: inset 2px 2px 0 #00000060, 0 0 0 2px var(--cyan-dim);
+}
+.pixel-input::placeholder { color: var(--border); }
+.pixel-input.error { border-color: var(--red); }
+.pixel-input.ok    { border-color: var(--green); }
+
+/* ── Select ─────────────────────────────────────────────────────────────── */
+.pixel-select {
+  width: 100%;
+  background: var(--bg);
+  border: 3px solid var(--border);
+  color: var(--white);
+  font-family: var(--font);
+  font-size: 9px;
+  padding: 8px 10px;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpolygon points='0,0 12,0 6,8' fill='%2300e5ff'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 32px;
+}
+.pixel-select:focus { border-color: var(--cyan); }
+.pixel-select option { background: var(--bg2); }
+
+/* ── Labels ─────────────────────────────────────────────────────────────── */
+.pixel-label {
+  display: block;
+  font-size: 8px;
+  color: var(--gold);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* ── Field group ────────────────────────────────────────────────────────── */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+/* ── Hint / Error text ──────────────────────────────────────────────────── */
+.hint {
+  font-size: 7px;
+  color: var(--border);
+  margin-top: 4px;
+}
+.hint.ok      { color: var(--green); }
+.hint.error   { color: var(--red); }
+.hint.loading { color: var(--cyan); }
+
+/* ── Tag chip ────────────────────────────────────────────────────────────── */
+.tag {
+  display: inline-block;
+  padding: 4px 8px;
+  font-size: 7px;
+  border: 2px solid var(--border);
+  background: var(--bg3);
+  color: var(--white);
+  margin: 2px;
+}
+.tag--cyan    { border-color: var(--cyan);    color: var(--cyan); }
+.tag--gold    { border-color: var(--gold);    color: var(--gold); }
+.tag--green   { border-color: var(--green);   color: var(--green); }
+.tag--magenta { border-color: var(--magenta); color: var(--magenta); }
+
+/* ── Dialog / Modal box ─────────────────────────────────────────────────── */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: #00000088;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.dialog-box {
+  max-width: 600px;
+  width: 90%;
+  padding: 24px;
+}
+
+/* ── Step wizard header ─────────────────────────────────────────────────── */
+.wizard-steps {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.wizard-step {
+  padding: 6px 10px;
+  font-size: 7px;
+  border: 2px solid var(--border);
+  color: var(--border);
+}
+.wizard-step.active {
+  border-color: var(--gold);
+  color: var(--gold);
+  box-shadow: 2px 2px 0 var(--gold-dim);
+}
+.wizard-step.done {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+/* ── Page layout ─────────────────────────────────────────────────────────── */
+.app-wrap {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 20px 16px 60px;
+}
+
+.app-header {
+  text-align: center;
+  padding: 28px 0 20px;
+}
+.app-title {
+  font-size: 20px;
+  color: var(--gold);
+  text-shadow: 3px 3px 0 var(--gold-dim), 6px 6px 0 var(--shadow);
+  letter-spacing: 3px;
+  margin-bottom: 8px;
+}
+.app-subtitle {
+  font-size: 8px;
+  color: var(--cyan);
+  letter-spacing: 2px;
+}
+
+.app-footer {
+  text-align: center;
+  font-size: 7px;
+  color: var(--border);
+  margin-top: 40px;
+  padding-top: 16px;
+  border-top: 2px solid var(--border);
+}
+
+/* ── Spinner ────────────────────────────────────────────────────────────── */
+@keyframes blink { 0%,100% { opacity:1 } 50% { opacity:0.2 } }
+.blink { animation: blink 1s step-start infinite; }
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.spinner {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 3px solid var(--border);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+
+/* ── Progress bar ────────────────────────────────────────────────────────── */
+.progress-bar {
+  height: 16px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  overflow: hidden;
+}
+.progress-bar__fill {
+  height: 100%;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--cyan) 0px,
+    var(--cyan) 10px,
+    var(--cyan-dim) 10px,
+    var(--cyan-dim) 20px
+  );
+  transition: width 0.3s;
+}
+
+/* ── Route display ───────────────────────────────────────────────────────── */
+.route-arrow {
+  color: var(--cyan);
+  margin: 0 4px;
+  font-size: 8px;
+}
+
+/* ── Token badge ─────────────────────────────────────────────────────────── */
+.token-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 2px solid var(--border);
+  background: var(--bg3);
+  font-size: 8px;
+  cursor: pointer;
+  transition: border-color 0.1s;
+}
+.token-badge.selected {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+.token-badge:hover { border-color: var(--gold); }
+
+/* ── Deploy results card ─────────────────────────────────────────────────── */
+.result-card {
+  padding: 20px;
+  margin-top: 16px;
+}
+.result-card__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 8px;
+}
+.result-card__row:last-child { border-bottom: none; }
+.result-card__key   { color: var(--gold); flex-shrink: 0; min-width: 140px; }
+.result-card__value { color: var(--cyan); word-break: break-all; text-align: right; }
+.result-card__value.green { color: var(--green); }
+
+/* ── Scrollbar (webkit) ──────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 8px; background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); }
+::-webkit-scrollbar-thumb:hover { background: var(--cyan-dim); }
+
+/* ── Address truncation ──────────────────────────────────────────────────── */
+.addr {
+  font-size: 7px;
+  color: var(--cyan-dim);
+  word-break: break-all;
+}
+
+/* ── Console log area ────────────────────────────────────────────────────── */
+.log-box {
+  background: #000018;
+  border: 2px solid var(--border);
+  padding: 12px;
+  font-family: monospace;
+  font-size: 9px;
+  color: var(--green);
+  max-height: 240px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .app-title  { font-size: 14px; }
+  .wizard-steps { gap: 4px; }
+  .wizard-step  { font-size: 6px; padding: 4px 6px; }
+  body { font-size: 9px; }
+}
