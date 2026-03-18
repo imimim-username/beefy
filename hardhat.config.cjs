@@ -14,6 +14,11 @@ module.exports = {
     },
   },
   networks: {
+    ethereum: {
+      url: rpc('RPC_ETH', 'https://eth.llamarpc.com'),
+      chainId: 1,
+      accounts: [pk],
+    },
     hardhat: {
       forking: {
         // Overridden at runtime by the deploy scripts via --fork flag

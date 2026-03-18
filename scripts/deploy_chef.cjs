@@ -25,6 +25,7 @@ async function main() {
     vaultName,
     vaultSymbol,
     unirouter,
+    strategist: strategistParam,
     beefyAddresses,
     dryRun,
   } = params;
@@ -33,7 +34,9 @@ async function main() {
   console.log(`[chef-deploy] want=${want} chef=${chefAddress} poolId=${poolId}`);
 
   const [deployer] = await ethers.getSigners();
+  const strategistAddress = strategistParam || deployer.address;
   console.log(`[chef-deploy] deployer=${deployer.address}`);
+  console.log(`[chef-deploy] strategist=${strategistAddress}`);
 
   const bal = await ethers.provider.getBalance(deployer.address);
   console.log(`[chef-deploy] balance=${ethers.formatEther(bal)} native`);
@@ -94,7 +97,7 @@ async function main() {
     vaultAddress,
     unirouter || beefyAddresses.unirouter,
     beefyAddresses.keeper,
-    deployer.address, // strategist = deployer
+    strategistAddress, // strategist = user-supplied or deployer
     beefyAddresses.beefyFeeRecipient,
     beefyAddresses.beefyFeeConfig,
   ];

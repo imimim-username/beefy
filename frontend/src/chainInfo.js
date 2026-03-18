@@ -4,6 +4,18 @@
  * Keep in sync with chains.js if you add networks.
  */
 export const CHAINS_INFO = {
+  1: {
+    id: 1, name: 'Ethereum', nativeSymbol: 'ETH',
+    nativeToken: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+    blockExplorer: 'https://etherscan.io',
+    beefyAddresses: {
+      vaultFactory:      '0x0000000000000000000000000000000000000000',
+      keeper:            '0x4fED5491693007f0CD49f4614FFC38Ab6A04B619',
+      beefyFeeRecipient: '0xF153f047cBBD23C0BbBfA6dC8ac2AfaEaEEEb07B',
+      beefyFeeConfig:    '0x97b14039e6F8D5eD85a2E3B0AC28dA46F29Cc836',
+      unirouter:         '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D',
+    },
+  },
   56: {
     id: 56, name: 'BNB Chain', nativeSymbol: 'BNB',
     nativeToken: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',

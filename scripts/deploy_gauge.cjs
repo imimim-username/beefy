@@ -24,6 +24,7 @@ async function main() {
     vaultName,
     vaultSymbol,
     unirouter,
+    strategist: strategistParam,
     isStable,
     beefyAddresses,
     dryRun,
@@ -33,7 +34,9 @@ async function main() {
   console.log(`[gauge-deploy] want=${want} gauge=${gaugeAddress} isStable=${!!isStable}`);
 
   const [deployer] = await ethers.getSigners();
+  const strategistAddress = strategistParam || deployer.address;
   console.log(`[gauge-deploy] deployer=${deployer.address}`);
+  console.log(`[gauge-deploy] strategist=${strategistAddress}`);
 
   const ZERO = '0x0000000000000000000000000000000000000000';
 
@@ -84,7 +87,7 @@ async function main() {
     vaultAddress,
     unirouter || beefyAddresses.unirouter,
     beefyAddresses.keeper,
-    deployer.address,
+    strategistAddress, // strategist = user-supplied or deployer
     beefyAddresses.beefyFeeRecipient,
     beefyAddresses.beefyFeeConfig,
   ];

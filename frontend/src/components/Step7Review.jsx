@@ -42,6 +42,7 @@ export function Step7Review({ form, onDryRun, onBack }) {
         <Row label="Strategy"    value={form.strategyType === 'chef' ? 'MasterChef / Chef LP' : 'Gauge / Solidly LP'} />
         <Row label="Vault Name"  value={form.vaultName} />
         <Row label="Vault Symbol" value={form.vaultSymbol} />
+        <Row label="Strategist"  value={form.strategist || '(deployer address)'} addr={!!form.strategist} />
       </div>
 
       <div className="result-card pixel-box" style={{ marginBottom: '16px' }}>
