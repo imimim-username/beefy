@@ -70,6 +70,16 @@ export function Step4Rewards({ form, setForm, onNext, onBack }) {
         <div style={{ fontSize: '7px', color: 'var(--cyan)' }}>
           The primary reward (first selected) is used as the "output" token in routes.
         </div>
+        {form.strategyType === 'aura' && (
+          <div style={{ fontSize: '7px', color: 'var(--gold)', marginTop: '6px' }}>
+            🔷 Aura strategy: primary reward should be <strong>BAL</strong> (Balancer governance token).
+          </div>
+        )}
+        {form.strategyType === 'convex' && (
+          <div style={{ fontSize: '7px', color: 'var(--gold)', marginTop: '6px' }}>
+            ⚙️ Convex strategy: primary reward should be <strong>CRV</strong> (Curve DAO token).
+          </div>
+        )}
       </div>
 
       {/* Known tokens grid */}

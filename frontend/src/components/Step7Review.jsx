@@ -11,19 +11,32 @@ function Row({ label, value, addr = false }) {
   );
 }
 
+function strategyLabel(stratType) {
+  return stratType === 'chef'   ? 'MasterChef (Chef LP)'        :
+         stratType === 'gauge'  ? 'Gauge / Solidly LP'           :
+         stratType === 'aura'   ? 'Aura Finance (Balancer LP)'   :
+         stratType === 'convex' ? 'Convex Finance (Curve LP)'    :
+         stratType || '?';
+}
+
 export function Step7Review({ form, onDryRun, onBack }) {
-  const chain = CHAINS_INFO[form.chainId];
-  const lp = form.lpInfo;
+  const chain  = CHAINS_INFO[form.chainId];
+  const lp     = form.lpInfo;
   const routes = form.routes || {};
+  const stratType = form.strategyType;
+  const isAura    = stratType === 'aura';
+  const isConvex  = stratType === 'convex';
 
   // Build token map for route display
   const tokenMap = {};
   if (lp) {
-    tokenMap[lp.token0.address.toLowerCase()] = lp.token0;
-    tokenMap[lp.token1.address.toLowerCase()] = lp.token1;
+    if (lp.token0) tokenMap[lp.token0.address.toLowerCase()] = lp.token0;
+    if (lp.token1) tokenMap[lp.token1.address.toLowerCase()] = lp.token1;
+    if (lp.token2) tokenMap[lp.token2.address.toLowerCase()] = lp.token2;
   }
   (form.rewardTokens || []).forEach(t => { tokenMap[t.address.toLowerCase()] = t; });
   if (chain?.nativeToken) tokenMap[chain.nativeToken.toLowerCase()] = { symbol: chain.nativeSymbol };
+  if (form.convexCoin)    tokenMap[form.convexCoin.address.toLowerCase()] = form.convexCoin;
 
   return (
     <PixelBox variant="gold" style={{ padding: '24px' }}>
@@ -37,26 +50,46 @@ export function Step7Review({ form, onDryRun, onBack }) {
         </div>
       </div>
 
+      {/* Basic info */}
       <div className="result-card pixel-box" style={{ marginBottom: '16px' }}>
-        <Row label="Network"     value={chain?.name || form.chainId} />
-        <Row label="Strategy"    value={form.strategyType === 'chef' ? 'MasterChef / Chef LP' : 'Gauge / Solidly LP'} />
-        <Row label="Vault Name"  value={form.vaultName} />
+        <Row label="Network"      value={chain?.name || form.chainId} />
+        <Row label="Strategy"     value={strategyLabel(stratType)} />
+        <Row label="Vault Name"   value={form.vaultName} />
         <Row label="Vault Symbol" value={form.vaultSymbol} />
-        <Row label="Strategist"  value={form.strategist || '(deployer address)'} addr={!!form.strategist} />
+        <Row label="Strategist"   value={form.strategist || '(deployer address)'} addr={!!form.strategist} />
       </div>
 
+      {/* LP / staking info */}
       <div className="result-card pixel-box" style={{ marginBottom: '16px' }}>
-        <Row label="LP Token"   value={lp?.lpSymbol || '?'} />
-        <Row label="LP Address" value={form.want} addr />
-        <Row label="Token 0"    value={lp?.token0?.symbol} />
-        <Row label="Token 1"    value={lp?.token1?.symbol} />
-        {form.strategyType === 'chef' && <Row label="Pool ID" value={String(form.poolId)} />}
-        {form.strategyType === 'chef' && form.pendingRewardsFunctionName && (
+        <Row label="LP Token"        value={lp?.lpSymbol || '?'} />
+        <Row label="LP Address"      value={form.want} addr />
+        <Row label="Token 0"         value={lp?.token0?.symbol} />
+        <Row label="Token 1"         value={lp?.token1?.symbol} />
+        {lp?.token2 && <Row label="Token 2" value={lp.token2.symbol} />}
+
+        {/* Chef */}
+        {stratType === 'chef' && <Row label="Pool ID" value={String(form.poolId)} />}
+        {stratType === 'chef' && form.pendingRewardsFunctionName && (
           <Row label="Pending Fn" value={form.pendingRewardsFunctionName} />
         )}
+
+        {/* Aura */}
+        {isAura && <Row label="Aura Pool ID"     value={String(form.poolId)} />}
+        {isAura && <Row label="Native Index"      value={String(form.nativeIndex)} />}
+
+        {/* Convex */}
+        {isConvex && <Row label="Convex Pool ID"  value={String(form.poolId)} />}
+        {isConvex && <Row label="Curve Pool"      value={form.curvePool} addr />}
+        {isConvex && <Row label="Coin Index"      value={String(form.coinIndex)} />}
+        {isConvex && <Row label="Pool Coins"      value={String(form.nCoins)} />}
+        {isConvex && form.convexCoin && (
+          <Row label="Compound Into" value={`${form.convexCoin.symbol} (${form.convexCoin.address.slice(0, 10)}…)`} />
+        )}
+
         <Row label="Staking Contract" value={form.staking} addr />
       </div>
 
+      {/* Routes */}
       <div className="result-card pixel-box" style={{ marginBottom: '16px' }}>
         <div className="result-card__row">
           <div className="result-card__key">Reward Tokens</div>
@@ -66,18 +99,44 @@ export function Step7Review({ form, onDryRun, onBack }) {
             ))}
           </div>
         </div>
+
+        {/* Native route — always shown */}
         <div className="result-card__row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
           <div className="result-card__key">→ Native route</div>
           <RouteDisplay route={routes.outputToNativeRoute} tokens={tokenMap} />
         </div>
-        <div className="result-card__row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
-          <div className="result-card__key">→ LP0 route</div>
-          <RouteDisplay route={routes.outputToLp0Route} tokens={tokenMap} />
-        </div>
-        <div className="result-card__row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
-          <div className="result-card__key">→ LP1 route</div>
-          <RouteDisplay route={routes.outputToLp1Route} tokens={tokenMap} />
-        </div>
+
+        {/* Coin route — Convex only */}
+        {isConvex && (
+          <div className="result-card__row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
+            <div className="result-card__key">→ Coin route</div>
+            <RouteDisplay route={routes.outputToCoinRoute} tokens={tokenMap} />
+          </div>
+        )}
+
+        {/* LP routes — chef / gauge only */}
+        {!isAura && !isConvex && (
+          <>
+            <div className="result-card__row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
+              <div className="result-card__key">→ LP0 route</div>
+              <RouteDisplay route={routes.outputToLp0Route} tokens={tokenMap} />
+            </div>
+            <div className="result-card__row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
+              <div className="result-card__key">→ LP1 route</div>
+              <RouteDisplay route={routes.outputToLp1Route} tokens={tokenMap} />
+            </div>
+          </>
+        )}
+
+        {/* Aura note */}
+        {isAura && (
+          <div className="result-card__row">
+            <div className="result-card__key" style={{ color: 'var(--cyan)' }}>LP join</div>
+            <div className="result-card__value" style={{ color: 'var(--cyan)', fontSize: '7px' }}>
+              Single-asset join via Balancer Vault (automatic)
+            </div>
+          </div>
+        )}
       </div>
 
       <PixelBox variant="red" style={{ padding: '12px', marginBottom: '20px' }}>

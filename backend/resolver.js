@@ -45,6 +45,28 @@ const GAUGE_ABI = [
   'function rewardToken() view returns (address)',
 ];
 
+// Balancer BPT exposes getPoolId(); Balancer Vault is same address on all chains
+const BALANCER_POOL_ABI = [
+  'function getPoolId() view returns (bytes32)',
+  'function symbol() view returns (string)',
+];
+const BALANCER_VAULT_ABI = [
+  'function getPoolTokens(bytes32 poolId) view returns (address[] tokens, uint256[] balances, uint256 lastChangeBlock)',
+];
+const BALANCER_VAULT_ADDR = '0xBA12222222228d8Ba445958a75a0704d566BF2C8';
+
+// Curve pools expose coins(uint256) — distinct from V2's token0()/token1()
+const CURVE_POOL_ABI = [
+  'function coins(uint256 i) view returns (address)',
+  'function symbol() view returns (string)',
+];
+
+// Aura / Convex boosters share the same poolInfo() interface
+const BOOSTER_ABI = [
+  'function poolLength() view returns (uint256)',
+  'function poolInfo(uint256 pid) view returns (address lptoken, address token, address gauge, address crvRewards, address stash, bool shutdown)',
+];
+
 function getProvider(chainId) {
   const chain = CHAINS[chainId];
   if (!chain) throw new Error(`Unknown chainId: ${chainId}`);
@@ -83,19 +105,84 @@ async function resolveLpToken(chainId, lpAddress) {
         pair.token1(),
         pair.symbol().catch(() => 'LP'),
       ]);
-    } catch (e2) {
-      // The contract exists but doesn't expose token0()/token1().
-      // Could be a Balancer pool, Curve pool, Uni-V3 pool, or similar.
-      // Try to read symbol for a better error message.
+    } catch (_e2) {
+      // Not a V2/Solidly pair — try Balancer and Curve before giving up.
+
+      // ── Balancer BPT? ──────────────────────────────────────────────────────
+      try {
+        const bpt  = new ethers.Contract(checksummed, BALANCER_POOL_ABI, provider);
+        const poolId = await bpt.getPoolId();
+        const vault  = new ethers.Contract(BALANCER_VAULT_ADDR, BALANCER_VAULT_ABI, provider);
+        const { tokens } = await vault.getPoolTokens(poolId);
+        // Filter out the BPT itself (pre-minted BPT appears in some boosted pools)
+        const underlyingTokens = tokens.filter(t => t.toLowerCase() !== checksummed.toLowerCase());
+        const sym = await bpt.symbol().catch(() => 'BPT');
+        const [t0, t1] = await Promise.all(
+          underlyingTokens.slice(0, 2).map(async (addr) => {
+            const c = new ethers.Contract(addr, ERC20_ABI, provider);
+            const [symbol, name, decimals] = await Promise.all([
+              c.symbol().catch(() => '???'),
+              c.name().catch(() => '???'),
+              c.decimals().catch(() => 18),
+            ]);
+            return { address: addr, symbol, name, decimals: Number(decimals) };
+          })
+        );
+        return {
+          lpAddress: checksummed,
+          lpSymbol: sym,
+          lpType: 'balancer',
+          balancerPoolId: poolId,
+          poolTokens: underlyingTokens,
+          token0: t0,
+          token1: t1,
+        };
+      } catch (_e3) { /* not Balancer */ }
+
+      // ── Curve pool? ────────────────────────────────────────────────────────
+      try {
+        const pool = new ethers.Contract(checksummed, CURVE_POOL_ABI, provider);
+        const [token0Addr, token1Addr] = await Promise.all([pool.coins(0), pool.coins(1)]);
+        const sym = await pool.symbol().catch(() => 'CRV-LP');
+        // Detect 3-coin pool
+        let nCoins = 2;
+        let token2Addr = null;
+        try { token2Addr = await pool.coins(2); nCoins = 3; } catch (_) { /* 2-coin */ }
+        const addrs = [token0Addr, token1Addr];
+        if (token2Addr) addrs.push(token2Addr);
+        const tokenMeta = await Promise.all(
+          addrs.map(async (addr) => {
+            const c = new ethers.Contract(addr, ERC20_ABI, provider);
+            const [symbol, name, decimals] = await Promise.all([
+              c.symbol().catch(() => '???'),
+              c.name().catch(() => '???'),
+              c.decimals().catch(() => 18),
+            ]);
+            return { address: addr, symbol, name, decimals: Number(decimals) };
+          })
+        );
+        return {
+          lpAddress: checksummed,
+          lpSymbol: sym,
+          lpType: 'curve',
+          nCoins,
+          poolTokens: addrs,
+          token0: tokenMeta[0],
+          token1: tokenMeta[1],
+          token2: tokenMeta[2] || undefined,
+        };
+      } catch (_e4) { /* not Curve */ }
+
+      // ── Unknown LP type ────────────────────────────────────────────────────
       let sym = '';
       try {
         const erc20 = new ethers.Contract(checksummed, ERC20_ABI, provider);
         sym = await erc20.symbol();
-      } catch (_e3) { /* ignore */ }
+      } catch (_e5) { /* ignore */ }
       throw new Error(
-        `Not a supported LP token${sym ? ` (symbol: ${sym})` : ''} — ` +
-        `only Uniswap V2-style and Solidly/Velodrome-style pairs are supported. ` +
-        `Balancer, Curve, and Uniswap V3 pools are not compatible with these strategies.`
+        `Not a recognized LP token${sym ? ` (symbol: ${sym})` : ''} — ` +
+        `expected a Uniswap V2, Solidly, Balancer, or Curve pool. ` +
+        `Uniswap V3 and other custom AMMs are not supported.`
       );
     }
   }
@@ -173,6 +260,46 @@ async function validateGauge(chainId, gaugeAddress) {
 }
 
 /**
+ * Validate an Aura Booster pool and return the lptoken for cross-checking.
+ * Returns { valid, poolLength, lpInPool?, rewardPool? }
+ */
+async function validateAura(chainId, boosterAddress, pid) {
+  const provider = getProvider(chainId);
+  const booster = new ethers.Contract(ethers.getAddress(boosterAddress), BOOSTER_ABI, provider);
+  try {
+    const poolLength = Number(await booster.poolLength());
+    const p = Number(pid);
+    if (p < 0 || p >= poolLength) {
+      return { valid: false, error: `pid ${p} out of range (${poolLength} pools)` };
+    }
+    const info = await booster.poolInfo(p);
+    return { valid: true, poolLength, lpInPool: info.lptoken, rewardPool: info.crvRewards };
+  } catch (e) {
+    return { valid: false, error: e.message };
+  }
+}
+
+/**
+ * Validate a Convex Booster pool and return the lptoken for cross-checking.
+ * Returns { valid, poolLength, lpInPool?, rewardPool? }
+ */
+async function validateConvex(chainId, boosterAddress, pid) {
+  const provider = getProvider(chainId);
+  const booster = new ethers.Contract(ethers.getAddress(boosterAddress), BOOSTER_ABI, provider);
+  try {
+    const poolLength = Number(await booster.poolLength());
+    const p = Number(pid);
+    if (p < 0 || p >= poolLength) {
+      return { valid: false, error: `pid ${p} out of range (${poolLength} pools)` };
+    }
+    const info = await booster.poolInfo(p);
+    return { valid: true, poolLength, lpInPool: info.lptoken, rewardPool: info.crvRewards };
+  } catch (e) {
+    return { valid: false, error: e.message };
+  }
+}
+
+/**
  * Build suggested swap routes for a strategy.
  * Given the reward token and the two LP tokens, returns three route arrays:
  *   outputToNativeRoute    : reward → native
@@ -196,6 +323,17 @@ function suggestRoutes(rewardToken, token0, token1, nativeToken) {
 }
 
 /**
+ * Fetch the ERC-20 token at a given index in a Curve pool.
+ * Returns { address, symbol, name, decimals } — same shape as resolveToken.
+ */
+async function getCurveCoin(chainId, curvePoolAddress, coinIndex) {
+  const provider = getProvider(chainId);
+  const pool = new ethers.Contract(ethers.getAddress(curvePoolAddress), CURVE_POOL_ABI, provider);
+  const coinAddr = await pool.coins(Number(coinIndex));
+  return resolveToken(chainId, coinAddr);
+}
+
+/**
  * Fetch basic token info (symbol/name/decimals) for an arbitrary address.
  */
 async function resolveToken(chainId, tokenAddress) {
@@ -209,4 +347,4 @@ async function resolveToken(chainId, tokenAddress) {
   return { address: ethers.getAddress(tokenAddress), symbol, name, decimals: Number(decimals) };
 }
 
-module.exports = { resolveLpToken, validateChef, validateGauge, suggestRoutes, resolveToken, getProvider };
+module.exports = { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, getCurveCoin, suggestRoutes, resolveToken, getProvider };

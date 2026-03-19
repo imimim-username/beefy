@@ -21,7 +21,9 @@ export function Step2LP({ form, setForm, onNext, onBack }) {
         setLpInfo(res);
         setForm(f => ({ ...f, want: res.lpAddress, lpInfo: res }));
         setStatus('ok');
-        setMsg(`Found: ${res.token0.symbol} / ${res.token1.symbol}`);
+        const typeTag = res.lpType === 'balancer' ? ' [Balancer]' : res.lpType === 'curve' ? ' [Curve]' : '';
+        const tokens = [res.token0?.symbol, res.token1?.symbol, res.token2?.symbol].filter(Boolean).join(' / ');
+        setMsg(`Found: ${tokens}${typeTag}`);
       })
       .catch(e => { setStatus('error'); setMsg(e.message); });
   }, [debounced, form.chainId]);
@@ -61,17 +63,20 @@ export function Step2LP({ form, setForm, onNext, onBack }) {
               <span style={{ color: 'var(--gold)' }}>LP Symbol: </span>
               <span className="tag tag--cyan">{lpInfo.lpSymbol}</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            {lpInfo.lpType && (
               <div>
-                <div style={{ color: 'var(--gold)', marginBottom: '4px' }}>TOKEN 0</div>
-                <div className="tag tag--gold">{lpInfo.token0.symbol}</div>
-                <div className="addr" style={{ marginTop: '4px' }}>{lpInfo.token0.address.slice(0,20)}…</div>
+                <span style={{ color: 'var(--gold)' }}>Pool type: </span>
+                <span className="tag tag--cyan">{lpInfo.lpType.toUpperCase()}</span>
               </div>
-              <div>
-                <div style={{ color: 'var(--gold)', marginBottom: '4px' }}>TOKEN 1</div>
-                <div className="tag tag--gold">{lpInfo.token1.symbol}</div>
-                <div className="addr" style={{ marginTop: '4px' }}>{lpInfo.token1.address.slice(0,20)}…</div>
-              </div>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${lpInfo.token2 ? 3 : 2}, 1fr)`, gap: '8px' }}>
+              {[lpInfo.token0, lpInfo.token1, lpInfo.token2].filter(Boolean).map((tok, i) => (
+                <div key={i}>
+                  <div style={{ color: 'var(--gold)', marginBottom: '4px' }}>TOKEN {i}</div>
+                  <div className="tag tag--gold">{tok.symbol}</div>
+                  <div className="addr" style={{ marginTop: '4px' }}>{tok.address.slice(0, 20)}…</div>
+                </div>
+              ))}
             </div>
             {lpInfo.isStable !== undefined && (
               <div>

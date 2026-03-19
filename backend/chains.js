@@ -10,6 +10,9 @@
  * strategyOwner     : Beefy multisig that owns strategies after init
  * unirouter         : default DEX router (can be overridden per vault)
  * nativeToken       : wrapped native (WBNB, WMATIC, etc.)
+ * auraBooster       : Aura Finance Booster (for Balancer LP vaults)
+ * convexBooster     : Convex Finance Booster (for Curve LP vaults)
+ * balancerVault     : Balancer Vault — same address on every chain
  *
  * Addresses verified against api.beefy.finance/config/<chain>  (2024-03)
  */
@@ -30,6 +33,9 @@ const CHAINS = {
       vaultOwner:        '0x5B6C5363851EC9ED29CB7220C39B44E1dd443992',
       strategyOwner:     '0x1c9270ac5C42E51611d7b97b1004313D52c80293',
       unirouter:         '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D', // Uniswap V2
+      auraBooster:       '0x7818A1DA7BD1E64c199029E86Ba244a9798eEE10',
+      convexBooster:     '0xF403C135812408BFbE8713b5A23a04b3D48AAE31',
+      balancerVault:     '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
     },
     blockExplorer: 'https://etherscan.io',
     hardhatNetwork: 'ethereum',
@@ -50,6 +56,7 @@ const CHAINS = {
       vaultOwner:        '0xA2E6391486670D2f1519461bcc915E4818aD1c9a',
       strategyOwner:     '0x65CF7E8C0d431f59787D07Fa1A9f8725bbC33F7E',
       unirouter:         '0x10ED43C718714eb63d5aA57B78B54704E256024E', // PancakeSwap v2
+      balancerVault:     '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
     },
     blockExplorer: 'https://bscscan.com',
     hardhatNetwork: 'bsc',
@@ -70,6 +77,8 @@ const CHAINS = {
       vaultOwner:        '0x94A9D4d38385C7bD5715A2068D69B87FF81F4BF3',
       strategyOwner:     '0x6fd13191539e0e13B381e1a3770F28D96705ce91',
       unirouter:         '0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff', // QuickSwap
+      auraBooster:       '0x98Ef32edd24e2c92525E59afc4523041a2aed806',
+      balancerVault:     '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
     },
     blockExplorer: 'https://polygonscan.com',
     hardhatNetwork: 'polygon',
@@ -90,6 +99,9 @@ const CHAINS = {
       vaultOwner:        '0x9A94784264AaAE397441c1e47fA132BE4e61BdaD',
       strategyOwner:     '0x6d28afD25a1FBC5409B1BeFFf6AEfEEe2902D89F',
       unirouter:         '0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506', // SushiSwap
+      auraBooster:       '0x98Ef32edd24e2c92525E59afc4523041a2aed806',
+      convexBooster:     '0xF403C135812408BFbE8713b5A23a04b3D48AAE31',
+      balancerVault:     '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
     },
     blockExplorer: 'https://arbiscan.io',
     hardhatNetwork: 'arbitrum',
@@ -110,6 +122,8 @@ const CHAINS = {
       vaultOwner:        '0xd08575F5F4DE7212123731088980D069CB75873D',
       strategyOwner:     '0x979a73011e7AB17363d38bee7CF0e4B5032C793e',
       unirouter:         '0x9c12939390052919aF3155f41Bf4160Fd3666A6f', // Velodrome
+      auraBooster:       '0x98Ef32edd24e2c92525E59afc4523041a2aed806',
+      balancerVault:     '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
     },
     blockExplorer: 'https://optimistic.etherscan.io',
     hardhatNetwork: 'optimism',
@@ -130,6 +144,8 @@ const CHAINS = {
       vaultOwner:        '0x09D19184F46A32213DF06b981122e06882B61309',
       strategyOwner:     '0x3B60F7f25b09E71356cdFFC6475c222A466a2AC9',
       unirouter:         '0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43', // Aerodrome
+      auraBooster:       '0x98Ef32edd24e2c92525E59afc4523041a2aed806',
+      balancerVault:     '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
     },
     blockExplorer: 'https://basescan.org',
     hardhatNetwork: 'base',

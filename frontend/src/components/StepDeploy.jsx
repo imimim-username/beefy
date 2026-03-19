@@ -55,12 +55,19 @@ export function StepDeploy({ form, dryResult, onBack, onReset }) {
       outputToNativeRoute: form.routes?.outputToNativeRoute,
       outputToLp0Route:    form.routes?.outputToLp0Route,
       outputToLp1Route:    form.routes?.outputToLp1Route,
+      outputToCoinRoute:   form.routes?.outputToCoinRoute,
       vaultName:    form.vaultName,
       vaultSymbol:  form.vaultSymbol,
       unirouter:    form.unirouter,
       strategist:   form.strategist,
       isStable:     form.isStable,
       pendingRewardsFunctionName: form.pendingRewardsFunctionName,
+      // Aura-specific
+      nativeIndex:  form.nativeIndex,
+      // Convex-specific
+      curvePool:    form.curvePool,
+      coinIndex:    form.coinIndex,
+      nCoins:       form.nCoins,
       beefyAddresses: chain?.beefyAddresses,
     };
   }

@@ -12,8 +12,11 @@ async function req(method, path, body) {
 export const api = {
   chains:         ()                  => req('GET',  '/chains'),
   resolveLp:      (chainId, lp)       => req('GET',  `/resolve-lp?chainId=${chainId}&lp=${lp}`),
-  validateChef:   (chainId, chef, pid)=> req('GET',  `/validate-chef?chainId=${chainId}&chef=${chef}&poolId=${pid}`),
-  validateGauge:  (chainId, gauge)    => req('GET',  `/validate-gauge?chainId=${chainId}&gauge=${gauge}`),
+  validateChef:   (chainId, chef, pid)      => req('GET',  `/validate-chef?chainId=${chainId}&chef=${chef}&poolId=${pid}`),
+  validateGauge:  (chainId, gauge)          => req('GET',  `/validate-gauge?chainId=${chainId}&gauge=${gauge}`),
+  validateAura:   (chainId, booster, pid)   => req('GET',  `/validate-aura?chainId=${chainId}&booster=${booster}&pid=${pid}`),
+  validateConvex: (chainId, booster, pid)   => req('GET',  `/validate-convex?chainId=${chainId}&booster=${booster}&pid=${pid}`),
+  curveCoin:      (chainId, pool, idx)      => req('GET',  `/curve-coin?chainId=${chainId}&curvePool=${pool}&coinIndex=${idx}`),
   suggestRoutes:  (body)              => req('POST', '/suggest-routes', body),
   resolveToken:   (chainId, address)  => req('GET',  `/resolve-token?chainId=${chainId}&address=${address}`),
   getTokens:      (chainId)           => req('GET',  `/tokens/${chainId}`),

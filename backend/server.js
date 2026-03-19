@@ -6,7 +6,7 @@ const cors    = require('cors');
 const morgan  = require('morgan');
 
 const { CHAINS }      = require('./chains.js');
-const { resolveLpToken, validateChef, validateGauge, suggestRoutes, resolveToken } = require('./resolver.js');
+const { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, getCurveCoin, suggestRoutes, resolveToken } = require('./resolver.js');
 const { dryRun, execute } = require('./deployer.js');
 const registry = require('./tokenRegistry.js');
 
@@ -70,6 +70,51 @@ app.get('/api/validate-gauge', async (req, res) => {
   try {
     const result = await validateGauge(Number(chainId), gauge);
     res.json({ ok: result.valid, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Validate Aura pool ────────────────────────────────────────────────────────
+// GET /api/validate-aura?chainId=1&booster=0x...&pid=123
+app.get('/api/validate-aura', async (req, res) => {
+  const { chainId, booster, pid } = req.query;
+  if (!chainId || !booster || pid === undefined) {
+    return res.status(400).json({ ok: false, error: 'chainId, booster, and pid required' });
+  }
+  try {
+    const result = await validateAura(Number(chainId), booster, pid);
+    res.json({ ok: result.valid, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Validate Convex pool ──────────────────────────────────────────────────────
+// GET /api/validate-convex?chainId=1&booster=0x...&pid=123
+app.get('/api/validate-convex', async (req, res) => {
+  const { chainId, booster, pid } = req.query;
+  if (!chainId || !booster || pid === undefined) {
+    return res.status(400).json({ ok: false, error: 'chainId, booster, and pid required' });
+  }
+  try {
+    const result = await validateConvex(Number(chainId), booster, pid);
+    res.json({ ok: result.valid, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Curve coin lookup ─────────────────────────────────────────────────────────
+// GET /api/curve-coin?chainId=1&curvePool=0x...&coinIndex=0
+app.get('/api/curve-coin', async (req, res) => {
+  const { chainId, curvePool, coinIndex } = req.query;
+  if (!chainId || !curvePool || coinIndex === undefined) {
+    return res.status(400).json({ ok: false, error: 'chainId, curvePool, and coinIndex required' });
+  }
+  try {
+    const info = await getCurveCoin(Number(chainId), curvePool, Number(coinIndex));
+    res.json({ ok: true, ...info });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
