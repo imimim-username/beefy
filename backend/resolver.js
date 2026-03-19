@@ -45,7 +45,7 @@ const GAUGE_ABI = [
   'function rewardToken() view returns (address)',
 ];
 
-// Balancer BPT exposes getPoolId(); Balancer Vault is same address on all chains
+// Balancer v2: BPT exposes getPoolId(); v2 Vault same address on all chains
 const BALANCER_POOL_ABI = [
   'function getPoolId() view returns (bytes32)',
   'function symbol() view returns (string)',
@@ -54,6 +54,15 @@ const BALANCER_VAULT_ABI = [
   'function getPoolTokens(bytes32 poolId) view returns (address[] tokens, uint256[] balances, uint256 lastChangeBlock)',
 ];
 const BALANCER_VAULT_ADDR = '0xBA12222222228d8Ba445958a75a0704d566BF2C8';
+
+// Balancer v3: BPT exposes getVault() (no poolId); v3 Vault getPoolTokens takes pool address
+const BALANCER_V3_POOL_ABI = [
+  'function getVault() view returns (address)',
+  'function symbol() view returns (string)',
+];
+const BALANCER_V3_VAULT_ABI = [
+  'function getPoolTokens(address pool) view returns (address[] tokens)',
+];
 
 // Curve pools expose coins(uint256) — distinct from V2's token0()/token1()
 const CURVE_POOL_ABI = [
@@ -137,7 +146,38 @@ async function resolveLpToken(chainId, lpAddress) {
           token0: t0,
           token1: t1,
         };
-      } catch (_e3) { /* not Balancer */ }
+      } catch (_e3) { /* not Balancer v2 */ }
+
+      // ── Balancer v3 BPT? (getVault() instead of getPoolId()) ───────────────
+      try {
+        const bptV3  = new ethers.Contract(checksummed, BALANCER_V3_POOL_ABI, provider);
+        const vaultAddr = await bptV3.getVault();   // throws if not a v3 BPT
+        const v3Vault = new ethers.Contract(vaultAddr, BALANCER_V3_VAULT_ABI, provider);
+        const tokens  = await v3Vault.getPoolTokens(checksummed);
+        // Filter out the BPT itself (pre-minted BPT sometimes appears in its own token list)
+        const underlyingTokens = tokens.filter(t => t.toLowerCase() !== checksummed.toLowerCase());
+        const sym = await bptV3.symbol().catch(() => 'BPT');
+        const resolvedTokens = await Promise.all(
+          underlyingTokens.slice(0, 2).map(async (addr) => {
+            const c = new ethers.Contract(addr, ERC20_ABI, provider);
+            const [symbol, name, decimals] = await Promise.all([
+              c.symbol().catch(() => '???'),
+              c.name().catch(() => '???'),
+              c.decimals().catch(() => 18),
+            ]);
+            return { address: addr, symbol, name, decimals: Number(decimals) };
+          })
+        );
+        return {
+          lpAddress: checksummed,
+          lpSymbol: sym,
+          lpType: 'balancer',
+          balancerVersion: 3,
+          poolTokens: underlyingTokens,
+          token0: resolvedTokens[0],
+          token1: resolvedTokens[1],
+        };
+      } catch (_e4) { /* not Balancer v3 */ }
 
       // ── Curve pool? ────────────────────────────────────────────────────────
       try {
@@ -171,14 +211,14 @@ async function resolveLpToken(chainId, lpAddress) {
           token1: tokenMeta[1],
           token2: tokenMeta[2] || undefined,
         };
-      } catch (_e4) { /* not Curve */ }
+      } catch (_e5) { /* not Curve */ }
 
       // ── Unknown LP type ────────────────────────────────────────────────────
       let sym = '';
       try {
         const erc20 = new ethers.Contract(checksummed, ERC20_ABI, provider);
         sym = await erc20.symbol();
-      } catch (_e5) { /* ignore */ }
+      } catch (_e6) { /* ignore */ }
       throw new Error(
         `Not a recognized LP token${sym ? ` (symbol: ${sym})` : ''} — ` +
         `expected a Uniswap V2, Solidly, Balancer, or Curve pool. ` +

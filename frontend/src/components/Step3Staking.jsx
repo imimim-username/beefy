@@ -232,6 +232,18 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </PixelBox>
       )}
 
+      {/* Balancer v3 + Aura incompatibility warning */}
+      {stratType === 'aura' && form.lpInfo?.balancerVersion === 3 && (
+        <PixelBox variant="red" style={{ padding: '10px', marginBottom: '14px' }}>
+          <div style={{ fontSize: '7px', color: 'var(--red)' }}>
+            ⚠ Your LP token is a <strong>Balancer v3</strong> pool. The included
+            <code> StrategyAuraLP</code> contract targets the Balancer v2 Vault
+            (<code>joinPool</code> interface) and will revert on a v3 pool.
+            You need a v3-compatible strategy before deploying for real.
+          </div>
+        </PixelBox>
+      )}
+
       {/* ── Staking address ─────────────────────────────────────────────────── */}
       <Field
         label={

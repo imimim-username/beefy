@@ -21,7 +21,9 @@ export function Step2LP({ form, setForm, onNext, onBack }) {
         setLpInfo(res);
         setForm(f => ({ ...f, want: res.lpAddress, lpInfo: res }));
         setStatus('ok');
-        const typeTag = res.lpType === 'balancer' ? ' [Balancer]' : res.lpType === 'curve' ? ' [Curve]' : '';
+        const typeTag = res.lpType === 'balancer'
+          ? ` [Balancer v${res.balancerVersion || 2}]`
+          : res.lpType === 'curve' ? ' [Curve]' : '';
         const tokens = [res.token0?.symbol, res.token1?.symbol, res.token2?.symbol].filter(Boolean).join(' / ');
         setMsg(`Found: ${tokens}${typeTag}`);
       })
@@ -66,7 +68,22 @@ export function Step2LP({ form, setForm, onNext, onBack }) {
             {lpInfo.lpType && (
               <div>
                 <span style={{ color: 'var(--gold)' }}>Pool type: </span>
-                <span className="tag tag--cyan">{lpInfo.lpType.toUpperCase()}</span>
+                <span className="tag tag--cyan">
+                  {lpInfo.lpType === 'balancer'
+                    ? `BALANCER V${lpInfo.balancerVersion || 2}`
+                    : lpInfo.lpType.toUpperCase()}
+                </span>
+              </div>
+            )}
+            {lpInfo.balancerVersion === 3 && (
+              <div style={{ padding: '8px', background: 'var(--dark)', border: '1px solid var(--gold)', borderRadius: '2px' }}>
+                <div style={{ fontSize: '7px', color: 'var(--gold)' }}>
+                  ⚠ Balancer v3 pool detected. The current Aura strategy contracts
+                  target the Balancer v2 Vault (<code>joinPool</code> interface).
+                  Balancer v3 pools use a different join mechanism and are not yet
+                  supported by the included strategy contract. Proceed only if you
+                  have a compatible v3-aware strategy.
+                </div>
               </div>
             )}
             <div style={{ display: 'grid', gridTemplateColumns: `repeat(${lpInfo.token2 ? 3 : 2}, 1fr)`, gap: '8px' }}>
