@@ -290,7 +290,13 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
         IERC20(output).approve(unirouter, type(uint256).max);
         address balancerEntry = balancerVersion == 2 ? BALANCER_VAULT : balancerV3Router;
         IERC20(native).approve(balancerEntry, type(uint256).max);
-        if (aura != address(0)) IERC20(aura).approve(unirouter, type(uint256).max);
+        if (aura != address(0)) {
+            // Aura extra reward tokens can be STASH-AURA — a virtual/non-ERC20
+            // token that reverts on approve(). Wrap in try/catch so a stash token
+            // cannot brick initialisation; disable swapping if approve fails.
+            try IERC20(aura).approve(unirouter, type(uint256).max) {}
+            catch { aura = address(0); }
+        }
     }
 
     function _removeAllowances() internal {
@@ -298,7 +304,9 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
         IERC20(output).approve(unirouter, 0);
         address balancerEntry = balancerVersion == 2 ? BALANCER_VAULT : balancerV3Router;
         IERC20(native).approve(balancerEntry, 0);
-        if (aura != address(0)) IERC20(aura).approve(unirouter, 0);
+        if (aura != address(0)) {
+            try IERC20(aura).approve(unirouter, 0) {} catch {}
+        }
     }
 
     // ── View helpers ──────────────────────────────────────────────────────────

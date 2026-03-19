@@ -33,7 +33,7 @@ const CHAINS = {
       vaultOwner:        '0x5B6C5363851EC9ED29CB7220C39B44E1dd443992',
       strategyOwner:     '0x1c9270ac5C42E51611d7b97b1004313D52c80293',
       unirouter:         '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D', // Uniswap V2
-      auraBooster:       '0x7818A1DA7BD1E64c199029E86Ba244a9798eEE10',
+      auraBooster:       '0xA57b8d98dAE62B26Ec3bcC4a365338157060B234',
       convexBooster:     '0xF403C135812408BFbE8713b5A23a04b3D48AAE31',
       balancerVault:     '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
     },
