@@ -1,12 +1,10 @@
 'use strict';
 /**
- * deploy_aura.cjs — deploys BeefyVaultV7 + StrategyAuraLP
+ * deploy_curvegauge.cjs — deploys BeefyVaultV7 + StrategyCommonCurveLP
+ *                          for a Curve native LiquidityGauge (minterEnabled=true).
  *
  * Reads params from scripts/_deploy_params.json (written by deployer.js).
  * Outputs exactly one line:  DEPLOY_RESULT=<json>
- *
- * Balancer Vault address (0xBA12...2C8) is hardcoded in the strategy contract
- * and does not need to be passed here.
  */
 
 const { ethers, network } = require('hardhat');
@@ -19,12 +17,14 @@ async function main() {
 
   const {
     chainId,
-    want,                  // Balancer Pool Token (BPT)
-    staking: boosterAddr,  // Aura Booster address
-    poolId: auraPoolId,    // Aura pool ID
-    // nativeIndex removed — strategy resolves it dynamically from pool token list
-    balancerV3Router,      // Balancer v3 Router address; undefined/null for v2 pools
-    outputToNativeRoute,   // [BAL, ..., WETH]
+    want,                  // Curve LP token
+    staking: gaugeAddr,    // Curve gauge address
+    curvePool,             // Curve pool contract (for add_liquidity)
+    coinIndex,             // which coin to compound into
+    nCoins,                // 2 or 3
+    minter,                // CRV Minter address
+    outputToNativeRoute,   // [CRV, ..., WETH]
+    outputToCoinRoute,     // [WETH, ..., coin]
     vaultName,
     vaultSymbol,
     unirouter,
@@ -33,15 +33,13 @@ async function main() {
     dryRun,
   } = params;
 
-  console.log(`\n[aura-deploy] mode=${dryRun ? 'DRY-RUN (fork)' : 'LIVE'} network=${network.name} chainId=${chainId}`);
-  const v3Router = balancerV3Router || '0x0000000000000000000000000000000000000000';
-  console.log(`[aura-deploy] want=${want} booster=${boosterAddr} auraPoolId=${auraPoolId}`);
-  console.log(`[aura-deploy] balancerV3Router=${v3Router} (${balancerV3Router ? 'v3 pool' : 'v2 pool'}`);
+  console.log(`\n[curvegauge-deploy] mode=${dryRun ? 'DRY-RUN (fork)' : 'LIVE'} network=${network.name} chainId=${chainId}`);
+  console.log(`[curvegauge-deploy] want=${want} gauge=${gaugeAddr} curvePool=${curvePool}`);
+  console.log(`[curvegauge-deploy] coinIndex=${coinIndex} nCoins=${nCoins} minter=${minter}`);
 
   const [deployer] = await ethers.getSigners();
   const strategistAddress = strategistParam || deployer.address;
-  console.log(`[aura-deploy] deployer=${deployer.address}`);
-  console.log(`[aura-deploy] strategist=${strategistAddress}`);
+  console.log(`[curvegauge-deploy] deployer=${deployer.address}`);
 
   const ZERO = '0x0000000000000000000000000000000000000000';
 
@@ -63,29 +61,27 @@ async function main() {
       } catch {}
     }
     if (!vaultAddress) throw new Error('ProxyCreated event not found in factory tx');
-    console.log(`[aura-deploy] vault cloned: ${vaultAddress}`);
+    console.log(`[curvegauge-deploy] vault cloned: ${vaultAddress}`);
   } else {
     const VaultFactory = await ethers.getContractFactory('BeefyVaultV7');
     const vault = await VaultFactory.deploy();
     await vault.waitForDeployment();
     vaultAddress = await vault.getAddress();
-    console.log(`[aura-deploy] vault deployed directly: ${vaultAddress}`);
+    console.log(`[curvegauge-deploy] vault deployed directly: ${vaultAddress}`);
   }
 
   // ── 2. Deploy strategy ────────────────────────────────────────────────────
-  const StratFactory = await ethers.getContractFactory('StrategyAuraLP');
+  const StratFactory = await ethers.getContractFactory('StrategyCommonCurveLP');
   const strategy = await StratFactory.deploy();
   await strategy.waitForDeployment();
   const stratAddress = await strategy.getAddress();
-  console.log(`[aura-deploy] strategy deployed: ${stratAddress}`);
+  console.log(`[curvegauge-deploy] strategy deployed: ${stratAddress}`);
 
   // ── 3. Initialize vault ───────────────────────────────────────────────────
-  const vaultAbi = [
-    'function initialize(address strategy, string name, string symbol, uint256 approvalDelay) external',
-  ];
+  const vaultAbi = ['function initialize(address strategy, string name, string symbol, uint256 approvalDelay) external'];
   const vault = new ethers.Contract(vaultAddress, vaultAbi, deployer);
   await (await vault.initialize(stratAddress, vaultName, vaultSymbol, 21600)).wait();
-  console.log(`[aura-deploy] vault initialized`);
+  console.log(`[curvegauge-deploy] vault initialized`);
 
   // ── 4. Initialize strategy ────────────────────────────────────────────────
   const commonAddresses = [
@@ -97,26 +93,27 @@ async function main() {
     beefyAddresses.beefyFeeConfig,
   ];
 
-  // nativeIndex removed from initialize() — strategy resolves it dynamically.
-  // balancerV3Router: pass address(0) for v2 pools; v3 router for Balancer v3 pools.
   const txStrat = await strategy.initialize(
     want,
-    boosterAddr,
-    Number(auraPoolId),
+    gaugeAddr,
+    curvePool,
+    Number(coinIndex),
+    Number(nCoins),
+    true,                 // minterEnabled = true for Curve native gauge
+    minter || ZERO,
     outputToNativeRoute,
-    v3Router,
+    outputToCoinRoute,
     commonAddresses
   );
   await txStrat.wait();
-  console.log(`[aura-deploy] strategy initialized`);
+  console.log(`[curvegauge-deploy] strategy initialized`);
 
-  // ── 5. Transfer vault ownership to Beefy multisig ─────────────────────────
+  // ── 5. Transfer vault ownership ───────────────────────────────────────────
   const vaultOwner = beefyAddresses.vaultOwner;
   if (vaultOwner && vaultOwner !== ZERO) {
-    const vaultOwnerAbi = ['function transferOwnership(address newOwner) external'];
-    const vaultForOwner = new ethers.Contract(vaultAddress, vaultOwnerAbi, deployer);
+    const vaultForOwner = new ethers.Contract(vaultAddress, ['function transferOwnership(address newOwner) external'], deployer);
     await (await vaultForOwner.transferOwnership(vaultOwner)).wait();
-    console.log(`[aura-deploy] vault ownership transferred to: ${vaultOwner}`);
+    console.log(`[curvegauge-deploy] vault ownership transferred to: ${vaultOwner}`);
   }
 
   const result = {
@@ -134,7 +131,4 @@ async function main() {
   console.log(`DEPLOY_RESULT=${JSON.stringify(result)}`);
 }
 
-main().catch(e => {
-  console.error(e);
-  process.exit(1);
-});
+main().catch(e => { console.error(e); process.exit(1); });

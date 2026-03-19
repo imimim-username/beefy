@@ -9,29 +9,28 @@ import "../interfaces/IUniswapRouterETH.sol";
 import "../interfaces/IAuraBooster.sol";
 import "../interfaces/IAuraRewardPool.sol";
 import "../interfaces/IBalancerVault.sol";
+import "../interfaces/IBalancerV3Router.sol";
 
 /**
  * @title  StrategyAuraLP
  * @notice Deposits a Balancer Pool Token (BPT) into Aura Finance, harvests
  *         BAL + AURA rewards, swaps them to native/WETH, charges Beefy fees,
- *         and re-enters the Balancer pool via a single-asset join before
- *         re-staking in Aura.
+ *         and re-enters the Balancer pool before re-staking in Aura.
  *
- * Balancer Vault: 0xBA12222222228d8Ba445958a75a0704d566BF2C8 (all chains)
+ * Supports both Balancer v2 and Balancer v3 pools:
+ *   - v2: re-joins via IBalancerVault.joinPool (bytes32 poolId)
+ *   - v3: re-joins via IBalancerV3Router.addLiquidityUnbalanced (pool address)
+ *
+ * The pool version is auto-detected at initialize() time by probing getPoolId()
+ * via a low-level static call. No manual version flag is required.
  *
  * Harvest flow:
- *   1. rewardPool.getReward()            -- claim BAL + AURA
+ *   1. rewardPool.getReward()            -- claim BAL + AURA + extras
  *   2. swap BAL  --> native              -- via Uniswap-V2 style router
- *   3. swap AURA --> native              -- auto-detected; simple [AURA,native] path
+ *   3. swap AURA --> native              -- auto-detected secondary reward
  *   4. charge Beefy / strategist fees
- *   5. joinPool with remaining native    -- single-asset join; index resolved dynamically
+ *   5. join Balancer pool with native    -- v2: joinPool / v3: addLiquidityUnbalanced
  *   6. booster.deposit(pid, bptBal, true)-- restake in Aura
- *
- * Fix log vs prior version:
- *   - nativeIndex removed; _joinBalancerPool() finds native token index at runtime
- *     so a wrong index can never silently deposit zero.
- *   - AURA secondary reward is auto-detected at init and swept on every harvest.
- *   - harvest() is now permissionless (consistent with Beefy open-harvest model).
  */
 contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -40,14 +39,21 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
 
     address public want;       // Balancer Pool Token (BPT)
     address public output;     // Primary reward: BAL
-    address public native;     // Wrapped native (WETH) -- Balancer join token
+    address public native;     // Wrapped native (WETH) -- used as join token
     address public aura;       // Secondary reward: AURA (address(0) if undetected)
 
     address public booster;    // Aura Booster
-    address public rewardPool; // Aura BaseRewardPool
+    address public rewardPool; // Aura BaseRewardPool (BaseRewardPool4626)
     uint256 public pid;        // Aura pool ID
 
-    bytes32 public balancerPoolId;        // from BPT.getPoolId()
+    // v2-specific
+    bytes32 public balancerPoolId;
+    // v3-specific
+    address public balancerV3Vault;
+    address public balancerV3Router;
+    // 2 = Balancer v2, 3 = Balancer v3
+    uint8   public balancerVersion;
+
     address[] public outputToNativeRoute; // [BAL, ..., WETH]
 
     bool private initialized;
@@ -64,15 +70,15 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
      * @param _booster            Aura Booster address
      * @param _pid                Aura pool ID
      * @param _outputToNativeRoute [BAL, ..., WETH]
+     * @param _balancerV3Router   Balancer v3 Router; pass address(0) for v2 pools.
      * @param _commonAddresses    {vault, unirouter, keeper, strategist, feeRecipient, feeConfig}
-     *
-     * Note: nativeIndex is NOT a parameter -- it is resolved dynamically at join time.
      */
     function initialize(
         address _want,
         address _booster,
         uint256 _pid,
         address[] calldata _outputToNativeRoute,
+        address _balancerV3Router,
         CommonAddresses calldata _commonAddresses
     ) external onlyOwner {
         require(!initialized, "already initialized");
@@ -97,11 +103,29 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
             aura = IAuraRewardPool(extraPool).rewardToken();
         }
 
-        balancerPoolId = IBalancerPool(_want).getPoolId();
+        // Auto-detect Balancer v2 vs v3 by probing getPoolId()
+        (bool v2ok, bytes memory v2data) = _want.staticcall(
+            abi.encodeWithSignature("getPoolId()")
+        );
+        if (v2ok && v2data.length == 32) {
+            balancerVersion = 2;
+            balancerPoolId  = abi.decode(v2data, (bytes32));
+        } else {
+            require(_balancerV3Router != address(0), "balancerV3Router required for v3 pool");
+            (bool vaultOk, bytes memory vaultData) = _want.staticcall(
+                abi.encodeWithSignature("getVault()")
+            );
+            require(vaultOk && vaultData.length == 32, "not a recognized Balancer BPT");
+            balancerVersion  = 3;
+            balancerV3Vault  = abi.decode(vaultData, (address));
+            balancerV3Router = _balancerV3Router;
+        }
 
         _initFeeManager(_commonAddresses);
         _giveAllowances();
     }
+
+    // ── Vault interface ───────────────────────────────────────────────────────
 
     function deposit() external nonReentrant {
         require(!paused, "paused");
@@ -134,14 +158,14 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
     function balanceOfWant() public view returns (uint256) { return IERC20(want).balanceOf(address(this)); }
     function balanceOfPool() public view returns (uint256) { return IAuraRewardPool(rewardPool).balanceOf(address(this)); }
 
-    // Permissionless harvest; call-fee goes to tx.origin
+    // ── Harvest ───────────────────────────────────────────────────────────────
+
     function harvest() external { _harvest(tx.origin); }
     function harvestWithCallFee(address _callFeeRecipient) external { _harvest(_callFeeRecipient); }
 
     function _harvest(address _callFeeRecipient) internal {
         IAuraRewardPool(rewardPool).getReward();
 
-        // Swap BAL -> native
         uint256 outputBal = IERC20(output).balanceOf(address(this));
         if (outputBal > 0) {
             IUniswapRouterETH(unirouter).swapExactTokensForTokens(
@@ -149,7 +173,6 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
             );
         }
 
-        // Swap AURA -> native (try/catch: pool may not exist on this router)
         if (aura != address(0) && aura != native) {
             uint256 auraBal = IERC20(aura).balanceOf(address(this));
             if (auraBal > 0) {
@@ -185,36 +208,49 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
         if (beefyAmt > 0)      IERC20(native).safeTransfer(beefyFeeRecipient, beefyAmt);
     }
 
-    /**
-     * @dev Single-asset Balancer join (EXACT_TOKENS_IN_FOR_BPT_OUT, joinKind=1).
-     *      Native token index is resolved at runtime from the pool token list.
-     */
     function _joinBalancerPool() internal {
         uint256 nativeBal = IERC20(native).balanceOf(address(this));
         if (nativeBal == 0) return;
-
-        (address[] memory poolTokens,,) = IBalancerVault(BALANCER_VAULT).getPoolTokens(balancerPoolId);
-
-        uint256 nativeIdx = type(uint256).max;
-        for (uint256 i = 0; i < poolTokens.length; i++) {
-            if (poolTokens[i] == native) { nativeIdx = i; break; }
+        if (balancerVersion == 2) {
+            _joinBalancerV2(nativeBal);
+        } else {
+            _joinBalancerV3(nativeBal);
         }
-        require(nativeIdx != type(uint256).max, "native not in pool");
+    }
 
+    function _joinBalancerV2(uint256 nativeBal) internal {
+        (address[] memory poolTokens,,) = IBalancerVault(BALANCER_VAULT).getPoolTokens(balancerPoolId);
+        uint256 nativeIdx = _findNativeIdx(poolTokens);
         uint256[] memory amounts = new uint256[](poolTokens.length);
         amounts[nativeIdx] = nativeBal;
-
         bytes memory userData = abi.encode(uint256(1), amounts, uint256(1));
-
         IBalancerVault.JoinPoolRequest memory req = IBalancerVault.JoinPoolRequest({
             assets:              poolTokens,
             maxAmountsIn:        amounts,
             userData:            userData,
             fromInternalBalance: false
         });
-
         IBalancerVault(BALANCER_VAULT).joinPool(balancerPoolId, address(this), address(this), req);
     }
+
+    function _joinBalancerV3(uint256 nativeBal) internal {
+        address[] memory poolTokens = IBalancerV3Vault(balancerV3Vault).getPoolTokens(want);
+        uint256 nativeIdx = _findNativeIdx(poolTokens);
+        uint256[] memory amounts = new uint256[](poolTokens.length);
+        amounts[nativeIdx] = nativeBal;
+        IBalancerV3Router(balancerV3Router).addLiquidityUnbalanced(
+            want, amounts, 0, false, ""
+        );
+    }
+
+    function _findNativeIdx(address[] memory tokens) internal view returns (uint256) {
+        for (uint256 i = 0; i < tokens.length; i++) {
+            if (tokens[i] == native) return i;
+        }
+        revert("native not in pool");
+    }
+
+    // ── Emergency ─────────────────────────────────────────────────────────────
 
     function panic() external onlyManager {
         paused = true;
@@ -247,19 +283,25 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
         IERC20(_token).safeTransfer(msg.sender, IERC20(_token).balanceOf(address(this)));
     }
 
+    // ── Allowances ────────────────────────────────────────────────────────────
+
     function _giveAllowances() internal {
         IERC20(want).approve(booster, type(uint256).max);
         IERC20(output).approve(unirouter, type(uint256).max);
-        IERC20(native).approve(BALANCER_VAULT, type(uint256).max);
+        address balancerEntry = balancerVersion == 2 ? BALANCER_VAULT : balancerV3Router;
+        IERC20(native).approve(balancerEntry, type(uint256).max);
         if (aura != address(0)) IERC20(aura).approve(unirouter, type(uint256).max);
     }
 
     function _removeAllowances() internal {
         IERC20(want).approve(booster, 0);
         IERC20(output).approve(unirouter, 0);
-        IERC20(native).approve(BALANCER_VAULT, 0);
+        address balancerEntry = balancerVersion == 2 ? BALANCER_VAULT : balancerV3Router;
+        IERC20(native).approve(balancerEntry, 0);
         if (aura != address(0)) IERC20(aura).approve(unirouter, 0);
     }
+
+    // ── View helpers ──────────────────────────────────────────────────────────
 
     function rewardsAvailable() public view returns (uint256) {
         return IAuraRewardPool(rewardPool).earned(address(this));

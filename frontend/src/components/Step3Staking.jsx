@@ -5,19 +5,29 @@ import { useDebounce } from '../hooks/useDebounce.js';
 import { CHAINS_INFO } from '../chainInfo.js';
 
 const STRATEGY_OPTS = [
-  { id: 'chef',   label: '👨‍🍳 MASTERCHEF', desc: 'PancakeSwap, SushiSwap, etc.'    },
-  { id: 'gauge',  label: '⚡ GAUGE',       desc: 'Velodrome, Aerodrome, Solidly…'  },
-  { id: 'aura',   label: '🔷 AURA',        desc: 'Balancer LP staked on Aura'       },
-  { id: 'convex', label: '⚙️ CONVEX',      desc: 'Curve LP staked on Convex'        },
+  { id: 'chef',       label: '👨‍🍳 MASTERCHEF',   desc: 'PancakeSwap, SushiSwap, etc.'        },
+  { id: 'gauge',      label: '⚡ GAUGE',          desc: 'Velodrome, Aerodrome, Solidly…'       },
+  { id: 'aura',       label: '🔷 AURA',           desc: 'Balancer LP staked on Aura'           },
+  { id: 'convex',     label: '⚙️ CONVEX',         desc: 'Curve LP staked on Convex'            },
+  { id: 'curvegauge', label: '〽️ CURVE GAUGE',   desc: 'Curve native LiquidityGauge'          },
+  { id: 'stakedao',   label: '🟣 STAKEDAO',       desc: 'StakeDAO gauge (sd-gauge)'            },
 ];
 
-// Which LP types match which strategy
+// Which LP types match which strategy (null = V2/Solidly, undefined = no check)
 const LP_TYPE_MATCH = {
-  chef:   null,          // V2 / Solidly — lpType field absent
-  gauge:  null,
-  aura:   'balancer',
-  convex: 'curve',
+  chef:       null,
+  gauge:      null,
+  aura:       'balancer',
+  convex:     'curve',
+  curvegauge: 'curve',
+  stakedao:   'curve',
 };
+
+// Strategies that use Curve pool fields (curve pool + coin index + nCoins)
+const USES_CURVE_POOL = new Set(['convex', 'curvegauge', 'stakedao']);
+
+// Strategies that need a pool ID
+const NEEDS_POOL_ID = new Set(['chef', 'aura', 'convex']);
 
 export function Step3Staking({ form, setForm, onNext, onBack }) {
   const chain = CHAINS_INFO[form.chainId];
@@ -28,7 +38,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
   const [poolId,      setPoolId]      = useState(form.poolId !== undefined ? String(form.poolId) : '');
   const [pendingFn,   setPendingFn]   = useState(form.pendingRewardsFunctionName || '');
 
-  // Convex-specific
+  // Curve-pool fields (shared by convex / curvegauge / stakedao)
   const [curvePool,  setCurvePool]  = useState(form.curvePool  || '');
   const [coinIndex,  setCoinIndex]  = useState(form.coinIndex  !== undefined ? String(form.coinIndex) : '');
   const [nCoins,     setNCoins]     = useState(form.nCoins     !== undefined ? String(form.nCoins) : '2');
@@ -43,7 +53,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
   const debouncedStaking   = useDebounce(stakingAddr, 700);
   const debouncedCurvePool = useDebounce(curvePool,   700);
 
-  /* ── auto-fill booster address from chain config ──────────────────────────── */
+  /* ── auto-fill addresses from chain config ─────────────────────────────────── */
   useEffect(() => {
     if (!form.chainId || !chain) return;
     if (stratType === 'aura'   && !stakingAddr && chain.beefyAddresses?.auraBooster) {
@@ -57,49 +67,42 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
   /* ── main staking validation ──────────────────────────────────────────────── */
   useEffect(() => {
     if (!debouncedStaking || debouncedStaking.length < 42 || !form.chainId) return;
-    // chef / aura / convex all require a poolId before validating
-    if ((stratType === 'chef' || stratType === 'aura' || stratType === 'convex') && poolId.trim() === '') return;
+    if (NEEDS_POOL_ID.has(stratType) && poolId.trim() === '') return;
 
     setStatus('loading');
     setMsg('Validating…');
 
     let validate;
-    if      (stratType === 'chef')   validate = api.validateChef(form.chainId, debouncedStaking, poolId);
-    else if (stratType === 'gauge')  validate = api.validateGauge(form.chainId, debouncedStaking);
-    else if (stratType === 'aura')   validate = api.validateAura(form.chainId, debouncedStaking, poolId);
-    else                             validate = api.validateConvex(form.chainId, debouncedStaking, poolId);
+    if      (stratType === 'chef')       validate = api.validateChef(form.chainId, debouncedStaking, poolId);
+    else if (stratType === 'gauge')      validate = api.validateGauge(form.chainId, debouncedStaking);
+    else if (stratType === 'aura')       validate = api.validateAura(form.chainId, debouncedStaking, poolId);
+    else if (stratType === 'convex')     validate = api.validateConvex(form.chainId, debouncedStaking, poolId);
+    else if (stratType === 'curvegauge') validate = api.validateCurveGauge(form.chainId, debouncedStaking);
+    else                                 validate = api.validateStakeDao(form.chainId, debouncedStaking);
 
     validate.then(res => {
       if (!res.ok) { setStatus('error'); setMsg(res.error || 'Validation failed'); return; }
 
+      // LP cross-check (where possible)
+      const lpToken = res.lpInPool || res.stakingToken;
+      if (lpToken && form.want && lpToken.toLowerCase() !== form.want.toLowerCase()) {
+        setStatus('error');
+        setMsg(`⚠ Gauge LP (${lpToken.slice(0, 10)}…) differs from your LP token`);
+        return;
+      }
+
       if (stratType === 'chef') {
-        if (res.lpInPool && form.want && res.lpInPool.toLowerCase() !== form.want.toLowerCase()) {
-          setStatus('error');
-          setMsg(`⚠ Pool ${poolId} LP (${res.lpInPool.slice(0, 10)}…) differs from your LP token`);
-          return;
-        }
         setMsg(`Chef OK — ${res.poolLength} pools · Pool LP: ${res.lpInPool?.slice(0, 10)}…`);
       } else if (stratType === 'gauge') {
-        if (res.stakingToken && form.want && res.stakingToken.toLowerCase() !== form.want.toLowerCase()) {
-          setStatus('error');
-          setMsg(`⚠ Gauge staking token (${res.stakingToken.slice(0, 10)}…) differs from your LP token`);
-          return;
-        }
         setMsg(`Gauge OK${res.stakingToken ? ` · staking token: ${res.stakingToken.slice(0, 10)}…` : ''}`);
       } else if (stratType === 'aura') {
-        if (res.lpInPool && form.want && res.lpInPool.toLowerCase() !== form.want.toLowerCase()) {
-          setStatus('error');
-          setMsg(`⚠ Pool ${poolId} BPT (${res.lpInPool.slice(0, 10)}…) differs from your LP token`);
-          return;
-        }
         setMsg(`Aura OK — ${res.poolLength} pools · BPT: ${res.lpInPool?.slice(0, 10)}…`);
-      } else { // convex
-        if (res.lpInPool && form.want && res.lpInPool.toLowerCase() !== form.want.toLowerCase()) {
-          setStatus('error');
-          setMsg(`⚠ Pool ${poolId} LP (${res.lpInPool.slice(0, 10)}…) differs from your Curve LP`);
-          return;
-        }
+      } else if (stratType === 'convex') {
         setMsg(`Convex OK — ${res.poolLength} pools · LP: ${res.lpInPool?.slice(0, 10)}…`);
+      } else if (stratType === 'curvegauge') {
+        setMsg(`Curve gauge OK${res.stakingToken ? ` · lp_token: ${res.stakingToken.slice(0, 10)}…` : ''}`);
+      } else {
+        setMsg(`StakeDAO gauge OK${res.stakingToken ? ` · lp_token: ${res.stakingToken.slice(0, 10)}…` : ''}`);
       }
 
       setStatus('ok');
@@ -107,7 +110,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         ...f,
         strategyType: stratType,
         staking:      debouncedStaking,
-        poolId:       (stratType !== 'gauge') ? Number(poolId) : undefined,
+        poolId:       NEEDS_POOL_ID.has(stratType) ? Number(poolId) : undefined,
         pendingRewardsFunctionName: stratType === 'chef' ? (pendingFn.trim() || undefined) : undefined,
         isStable:     stratType === 'gauge' ? form.lpInfo?.isStable : undefined,
       }));
@@ -115,9 +118,9 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedStaking, stratType, poolId, form.chainId]);
 
-  /* ── Curve coin lookup (Convex only) ──────────────────────────────────────── */
+  /* ── Curve coin lookup (convex / curvegauge / stakedao) ────────────────────── */
   useEffect(() => {
-    if (stratType !== 'convex') return;
+    if (!USES_CURVE_POOL.has(stratType)) return;
     if (!debouncedCurvePool || debouncedCurvePool.length < 42 || coinIndex === '' || !form.chainId) return;
 
     setCoinStatus('loading');
@@ -145,36 +148,65 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
 
   /* ── LP type mismatch warning ─────────────────────────────────────────────── */
   const expectedLpType = LP_TYPE_MATCH[stratType];
-  const actualLpType   = form.lpInfo?.lpType || null;  // null = V2/Solidly
+  const actualLpType   = form.lpInfo?.lpType || null;
   const lpMismatch     = expectedLpType !== undefined && expectedLpType !== actualLpType;
 
   /* ── availability guards ──────────────────────────────────────────────────── */
   const chainHasAura   = !!chain?.beefyAddresses?.auraBooster;
   const chainHasConvex = !!chain?.beefyAddresses?.convexBooster;
 
-  /* ── canProceed ───────────────────────────────────────────────────────────── */
-  const validationOk = status === 'ok';
-  const auraReady    = stratType === 'aura'   && validationOk;
-  const convexReady  = stratType === 'convex' && validationOk && convexCoin !== null && nCoins !== '';
-  const basicReady   = (stratType === 'chef' || stratType === 'gauge') && validationOk;
-  const canProceed   = auraReady || convexReady || basicReady;
+  function isUnavailable(id) {
+    if (id === 'aura')   return !chainHasAura;
+    if (id === 'convex') return !chainHasConvex;
+    return false;
+  }
 
-  /* ── handleNext: flush all form fields before advancing ──────────────────── */
+  /* ── canProceed ───────────────────────────────────────────────────────────── */
+  const validationOk  = status === 'ok';
+  const curvePoolReady = validationOk && convexCoin !== null && nCoins !== '';
+  const canProceed =
+    (stratType === 'chef' || stratType === 'gauge') && validationOk ||
+    stratType === 'aura'                            && validationOk ||
+    USES_CURVE_POOL.has(stratType)                  && curvePoolReady;
+
+  /* ── handleNext ───────────────────────────────────────────────────────────── */
   function handleNext() {
     setForm(f => ({
       ...f,
       strategyType: stratType,
       staking:      stakingAddr,
-      poolId:       (stratType !== 'gauge') ? Number(poolId) : undefined,
+      poolId:       NEEDS_POOL_ID.has(stratType) ? Number(poolId) : undefined,
       pendingRewardsFunctionName: stratType === 'chef' ? (pendingFn.trim() || undefined) : undefined,
       isStable:     stratType === 'gauge' ? form.lpInfo?.isStable : undefined,
-      curvePool:    stratType === 'convex' ? curvePool  : undefined,
-      coinIndex:    stratType === 'convex' ? Number(coinIndex) : undefined,
-      nCoins:       stratType === 'convex' ? Number(nCoins)    : undefined,
-      convexCoin:   stratType === 'convex' ? convexCoin : undefined,
+      curvePool:    USES_CURVE_POOL.has(stratType) ? curvePool    : undefined,
+      coinIndex:    USES_CURVE_POOL.has(stratType) ? Number(coinIndex) : undefined,
+      nCoins:       USES_CURVE_POOL.has(stratType) ? Number(nCoins)    : undefined,
+      convexCoin:   USES_CURVE_POOL.has(stratType) ? convexCoin   : undefined,
+      // minterEnabled: curvegauge = true (needs Minter), stakedao = false (claim_rewards handles CRV)
+      minterEnabled: stratType === 'curvegauge' ? true : stratType === 'stakedao' ? false : undefined,
+      // CRV Minter address: from chain config (only used for curvegauge)
+      minter: stratType === 'curvegauge' ? (chain?.beefyAddresses?.crvMinter || null) : undefined,
+      // Balancer v3 Router: auto-pass from chain config when pool is v3
+      balancerV3Router: stratType === 'aura' && form.lpInfo?.balancerVersion === 3
+        ? (chain?.beefyAddresses?.balancerV3Router || null) : undefined,
     }));
     onNext();
   }
+
+  /* ── staking address label ────────────────────────────────────────────────── */
+  const stakingLabel =
+    stratType === 'chef'       ? 'MasterChef Address'   :
+    stratType === 'gauge'      ? 'Gauge Address'         :
+    stratType === 'aura'       ? 'Aura Booster Address'  :
+    stratType === 'convex'     ? 'Convex Booster Address':
+    stratType === 'curvegauge' ? 'Curve Gauge Address'   :
+                                 'StakeDAO Gauge Address';
+
+  /* ── pool ID label ────────────────────────────────────────────────────────── */
+  const poolIdLabel =
+    stratType === 'chef'   ? 'Pool ID (pid)'   :
+    stratType === 'aura'   ? 'Aura Pool ID'    :
+                             'Convex Pool ID';
 
   /* ── render ───────────────────────────────────────────────────────────────── */
   return (
@@ -188,10 +220,10 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </div>
       </div>
 
-      {/* Strategy type picker — 2×2 grid */}
-      <div style={{ marginBottom: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+      {/* Strategy type picker — 3×2 grid */}
+      <div style={{ marginBottom: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
         {STRATEGY_OPTS.map(opt => {
-          const unavailable = (opt.id === 'aura' && !chainHasAura) || (opt.id === 'convex' && !chainHasConvex);
+          const unavailable = isUnavailable(opt.id);
           return (
             <button
               key={opt.id}
@@ -200,9 +232,9 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
               disabled={unavailable}
               style={{ flexDirection: 'column', display: 'flex', gap: '4px', opacity: unavailable ? 0.4 : 1 }}
             >
-              <div>{opt.label}</div>
+              <div style={{ fontSize: '9px' }}>{opt.label}</div>
               <div style={{ fontSize: '6px', fontFamily: 'sans-serif', opacity: 0.7 }}>
-                {unavailable ? 'Not available on this chain' : opt.desc}
+                {unavailable ? 'Not on this chain' : opt.desc}
               </div>
             </button>
           );
@@ -215,46 +247,47 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
           <div style={{ fontSize: '7px', color: 'var(--red)' }}>
             ⚠ Your LP token appears to be a <strong>{actualLpType || 'V2/Solidly'}</strong> pool,
             but the <strong>{stratType.toUpperCase()}</strong> strategy expects a{' '}
-            <strong>{expectedLpType || 'V2/Solidly'}</strong> pool. Make sure you've selected the
-            right strategy type.
+            <strong>{expectedLpType || 'V2/Solidly'}</strong> pool.
           </div>
         </PixelBox>
       )}
 
-      {/* Info banner for Aura / Convex */}
-      {(stratType === 'aura' || stratType === 'convex') && (
+      {/* Info banners */}
+      {(stratType === 'aura' || stratType === 'convex' || stratType === 'curvegauge' || stratType === 'stakedao') && (
         <PixelBox style={{ padding: '10px', marginBottom: '14px' }}>
           <div style={{ fontSize: '7px', color: 'var(--cyan)' }}>
-            {stratType === 'aura'
-              ? '🔷 Aura Finance: harvests BAL + AURA, compounding back into the Balancer pool via single-asset join.'
-              : '⚙️ Convex Finance: harvests CRV + CVX, swaps to a chosen Curve pool coin and re-adds liquidity.'}
+            {stratType === 'aura'       && '🔷 Aura Finance: harvests BAL + AURA, joins Balancer pool (v2 or v3), restakes.'}
+            {stratType === 'convex'     && '⚙️ Convex Finance: harvests CRV + CVX, swaps to a Curve coin, re-adds liquidity.'}
+            {stratType === 'curvegauge' && '〽️ Curve native gauge: CRV via Minter + extra rewards via claim_rewards(), re-adds to Curve pool.'}
+            {stratType === 'stakedao'   && '🟣 StakeDAO gauge: claim_rewards(address) distributes CRV + SDT + extras — no external Minter call.'}
           </div>
         </PixelBox>
       )}
 
-      {/* Balancer v3 + Aura incompatibility warning */}
+      {/* Balancer v3 note (now supported) */}
       {stratType === 'aura' && form.lpInfo?.balancerVersion === 3 && (
+        <PixelBox style={{ padding: '10px', marginBottom: '14px' }}>
+          <div style={{ fontSize: '7px', color: 'var(--cyan)' }}>
+            ℹ Balancer v3 pool detected — the strategy will use the v3 Router
+            (<code>addLiquidityUnbalanced</code>) instead of the v2 Vault <code>joinPool</code>.
+            Router address auto-filled from chain config.
+          </div>
+        </PixelBox>
+      )}
+
+      {/* Curve gauge: warn if no CRV Minter configured for this chain */}
+      {stratType === 'curvegauge' && !chain?.beefyAddresses?.crvMinter && (
         <PixelBox variant="red" style={{ padding: '10px', marginBottom: '14px' }}>
           <div style={{ fontSize: '7px', color: 'var(--red)' }}>
-            ⚠ Your LP token is a <strong>Balancer v3</strong> pool. The included
-            <code> StrategyAuraLP</code> contract targets the Balancer v2 Vault
-            (<code>joinPool</code> interface) and will revert on a v3 pool.
-            You need a v3-compatible strategy before deploying for real.
+            ⚠ No CRV Minter address configured for this chain. Curve native gauges on L2s
+            typically don't use the Minter — consider <strong>StakeDAO</strong> or ensure your
+            gauge streams CRV via <code>claim_rewards()</code>.
           </div>
         </PixelBox>
       )}
 
       {/* ── Staking address ─────────────────────────────────────────────────── */}
-      <Field
-        label={
-          stratType === 'chef'   ? 'MasterChef Address'   :
-          stratType === 'gauge'  ? 'Gauge Address'         :
-          stratType === 'aura'   ? 'Aura Booster Address'  :
-                                   'Convex Booster Address'
-        }
-        hint={msg}
-        hintType={status}
-      >
+      <Field label={stakingLabel} hint={msg} hintType={status}>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
           <input
             className={`pixel-input ${status === 'error' ? 'error' : ''} ${status === 'ok' ? 'ok' : ''}`}
@@ -266,9 +299,9 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </div>
       </Field>
 
-      {/* ── Pool ID (chef / aura / convex) ──────────────────────────────────── */}
-      {stratType !== 'gauge' && (
-        <Field label={stratType === 'chef' ? 'Pool ID (pid)' : stratType === 'aura' ? 'Aura Pool ID' : 'Convex Pool ID'}>
+      {/* ── Pool ID (chef / aura / convex only) ─────────────────────────────── */}
+      {NEEDS_POOL_ID.has(stratType) && (
+        <Field label={poolIdLabel}>
           <input
             className="pixel-input"
             type="number"
@@ -299,7 +332,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </Field>
       )}
 
-      {/* ── Gauge: stable-pair info ──────────────────────────────────────────── */}
+      {/* ── Solidly Gauge: stable-pair info ─────────────────────────────────── */}
       {stratType === 'gauge' && form.lpInfo?.isStable !== undefined && (
         <PixelBox style={{ padding: '10px', marginBottom: '16px' }}>
           <div style={{ fontSize: '7px', color: 'var(--gold)' }}>
@@ -309,8 +342,8 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </PixelBox>
       )}
 
-      {/* ── Convex: curve pool + coin index + nCoins (shown after validation) ─ */}
-      {stratType === 'convex' && status === 'ok' && (
+      {/* ── Curve pool fields (convex / curvegauge / stakedao — shown after validation) ─ */}
+      {USES_CURVE_POOL.has(stratType) && status === 'ok' && (
         <>
           <Field
             label="Curve Pool Contract Address"
@@ -329,7 +362,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
 
           <Field
             label="Coin Index (compound into)"
-            hint={coinMsg || 'Index of the pool coin to swap rewards into and add as liquidity (0-based)'}
+            hint={coinMsg || 'Index of the pool coin to swap rewards into (0-based)'}
             hintType={coinStatus}
           >
             <input

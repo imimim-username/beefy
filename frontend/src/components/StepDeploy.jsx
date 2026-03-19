@@ -62,10 +62,15 @@ export function StepDeploy({ form, dryResult, onBack, onReset }) {
       strategist:   form.strategist,
       isStable:     form.isStable,
       pendingRewardsFunctionName: form.pendingRewardsFunctionName,
-      // Convex-specific
+      // Convex / CurveGauge / StakeDAO
       curvePool:    form.curvePool,
       coinIndex:    form.coinIndex,
       nCoins:       form.nCoins,
+      // CurveGauge
+      minterEnabled: form.minterEnabled,
+      minter:        form.minter,
+      // Aura v3
+      balancerV3Router: form.balancerV3Router,
       beefyAddresses: chain?.beefyAddresses,
     };
   }

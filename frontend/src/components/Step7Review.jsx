@@ -12,10 +12,12 @@ function Row({ label, value, addr = false }) {
 }
 
 function strategyLabel(stratType) {
-  return stratType === 'chef'   ? 'MasterChef (Chef LP)'        :
-         stratType === 'gauge'  ? 'Gauge / Solidly LP'           :
-         stratType === 'aura'   ? 'Aura Finance (Balancer LP)'   :
-         stratType === 'convex' ? 'Convex Finance (Curve LP)'    :
+  return stratType === 'chef'       ? 'MasterChef (Chef LP)'              :
+         stratType === 'gauge'      ? 'Gauge / Solidly LP'                :
+         stratType === 'aura'       ? 'Aura Finance (Balancer LP)'        :
+         stratType === 'convex'     ? 'Convex Finance (Curve LP)'         :
+         stratType === 'curvegauge' ? 'Curve Native LiquidityGauge'       :
+         stratType === 'stakedao'   ? 'StakeDAO Gauge (sd-gauge)'         :
          stratType || '?';
 }
 
@@ -24,8 +26,11 @@ export function Step7Review({ form, onDryRun, onBack }) {
   const lp     = form.lpInfo;
   const routes = form.routes || {};
   const stratType = form.strategyType;
-  const isAura    = stratType === 'aura';
-  const isConvex  = stratType === 'convex';
+  const isAura       = stratType === 'aura';
+  const isConvex     = stratType === 'convex';
+  const isCurveGauge = stratType === 'curvegauge';
+  const isStakeDao   = stratType === 'stakedao';
+  const usesCurvePool = isConvex || isCurveGauge || isStakeDao;
 
   // Build token map for route display
   const tokenMap = {};
@@ -85,7 +90,33 @@ export function Step7Review({ form, onDryRun, onBack }) {
           <Row label="Compound Into" value={`${form.convexCoin.symbol} (${form.convexCoin.address.slice(0, 10)}…)`} />
         )}
 
-        <Row label="Staking Contract" value={form.staking} addr />
+        {/* Curve native gauge */}
+        {isCurveGauge && <Row label="Curve Gauge"  value={form.staking} addr />}
+        {isCurveGauge && <Row label="Curve Pool"   value={form.curvePool} addr />}
+        {isCurveGauge && <Row label="Coin Index"   value={String(form.coinIndex)} />}
+        {isCurveGauge && <Row label="Pool Coins"   value={String(form.nCoins)} />}
+        {isCurveGauge && form.convexCoin && (
+          <Row label="Compound Into" value={`${form.convexCoin.symbol} (${form.convexCoin.address.slice(0, 10)}…)`} />
+        )}
+        {isCurveGauge && <Row label="CRV Minter"  value={form.minter || '(none)'} addr={!!form.minter} />}
+
+        {/* StakeDAO gauge */}
+        {isStakeDao && <Row label="StakeDAO Gauge" value={form.staking} addr />}
+        {isStakeDao && <Row label="Curve Pool"     value={form.curvePool} addr />}
+        {isStakeDao && <Row label="Coin Index"     value={String(form.coinIndex)} />}
+        {isStakeDao && <Row label="Pool Coins"     value={String(form.nCoins)} />}
+        {isStakeDao && form.convexCoin && (
+          <Row label="Compound Into" value={`${form.convexCoin.symbol} (${form.convexCoin.address.slice(0, 10)}…)`} />
+        )}
+
+        {/* Aura v3 router */}
+        {isAura && form.balancerV3Router && (
+          <Row label="Balancer v3 Router" value={form.balancerV3Router} addr />
+        )}
+
+        {!isCurveGauge && !isStakeDao && (
+          <Row label="Staking Contract" value={form.staking} addr />
+        )}
       </div>
 
       {/* Routes */}
@@ -105,8 +136,8 @@ export function Step7Review({ form, onDryRun, onBack }) {
           <RouteDisplay route={routes.outputToNativeRoute} tokens={tokenMap} />
         </div>
 
-        {/* Coin route — Convex only */}
-        {isConvex && (
+        {/* Coin route — Convex / CurveGauge / StakeDAO */}
+        {usesCurvePool && (
           <div className="result-card__row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
             <div className="result-card__key">→ Coin route</div>
             <RouteDisplay route={routes.outputToCoinRoute} tokens={tokenMap} />
@@ -114,7 +145,7 @@ export function Step7Review({ form, onDryRun, onBack }) {
         )}
 
         {/* LP routes — chef / gauge only */}
-        {!isAura && !isConvex && (
+        {!isAura && !usesCurvePool && (
           <>
             <div className="result-card__row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
               <div className="result-card__key">→ LP0 route</div>
@@ -132,7 +163,7 @@ export function Step7Review({ form, onDryRun, onBack }) {
           <div className="result-card__row">
             <div className="result-card__key" style={{ color: 'var(--cyan)' }}>LP join</div>
             <div className="result-card__value" style={{ color: 'var(--cyan)', fontSize: '7px' }}>
-              Single-asset join via Balancer Vault (automatic)
+              Single-asset join via Balancer {form.balancerV3Router ? 'v3 Router' : 'v2 Vault'} (automatic)
             </div>
           </div>
         )}

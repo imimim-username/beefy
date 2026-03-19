@@ -6,7 +6,7 @@ const cors    = require('cors');
 const morgan  = require('morgan');
 
 const { CHAINS }      = require('./chains.js');
-const { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, getCurveCoin, suggestRoutes, resolveToken } = require('./resolver.js');
+const { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, getCurveCoin, suggestRoutes, resolveToken } = require('./resolver.js');
 const { dryRun, execute } = require('./deployer.js');
 const registry = require('./tokenRegistry.js');
 
@@ -99,6 +99,31 @@ app.get('/api/validate-convex', async (req, res) => {
   }
   try {
     const result = await validateConvex(Number(chainId), booster, pid);
+    res.json({ ok: result.valid, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Validate Curve / StakeDAO gauge ──────────────────────────────────────────
+// GET /api/validate-curvegauge?chainId=1&gauge=0x...
+// GET /api/validate-stakedao?chainId=1&gauge=0x...   (same logic)
+app.get('/api/validate-curvegauge', async (req, res) => {
+  const { chainId, gauge } = req.query;
+  if (!chainId || !gauge) return res.status(400).json({ ok: false, error: 'chainId and gauge required' });
+  try {
+    const result = await validateCurveGauge(Number(chainId), gauge);
+    res.json({ ok: result.valid, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.get('/api/validate-stakedao', async (req, res) => {
+  const { chainId, gauge } = req.query;
+  if (!chainId || !gauge) return res.status(400).json({ ok: false, error: 'chainId and gauge required' });
+  try {
+    const result = await validateCurveGauge(Number(chainId), gauge);
     res.json({ ok: result.valid, ...result });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });

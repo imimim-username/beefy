@@ -21,6 +21,10 @@ export const CHAINS_INFO = {
       auraBooster:       '0x7818A1DA7BD1E64c199029E86Ba244a9798eEE10',
       convexBooster:     '0xF403C135812408BFbE8713b5A23a04b3D48AAE31',
       balancerVault:     '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
+      // Balancer v3 (mainnet only)
+      balancerV3Router:  '0x5C6fb490BDFD3246EB0bB062c168DeCAF4bD9FDd',
+      // CRV Minter — only on mainnet; L2 Curve gauges stream CRV as a reward token
+      crvMinter:         '0xd061D61a4d941c39E5453435B6345Dc261C2fcE0',
     },
   },
   56: {

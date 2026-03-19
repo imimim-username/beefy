@@ -340,6 +340,30 @@ async function validateConvex(chainId, boosterAddress, pid) {
 }
 
 /**
+ * Validate a Curve LiquidityGauge or StakeDAO gauge by reading its lp_token().
+ * Returns { valid, stakingToken? }
+ *
+ * Works for both Curve native gauges and StakeDAO gauges — both expose lp_token().
+ */
+async function validateCurveGauge(chainId, gaugeAddress) {
+  const provider = getProvider(chainId);
+  const abi = [
+    'function lp_token() view returns (address)',
+    'function staking_token() view returns (address)', // StakeDAO alternate name
+  ];
+  const gauge = new ethers.Contract(ethers.getAddress(gaugeAddress), abi, provider);
+  try {
+    let stakingToken = null;
+    for (const method of ['lp_token', 'staking_token']) {
+      try { stakingToken = await gauge[method](); break; } catch (_e) { /* try next */ }
+    }
+    return { valid: true, stakingToken };
+  } catch (e) {
+    return { valid: false, error: e.message };
+  }
+}
+
+/**
  * Build suggested swap routes for a strategy.
  * Given the reward token and the two LP tokens, returns three route arrays:
  *   outputToNativeRoute    : reward → native
@@ -387,4 +411,4 @@ async function resolveToken(chainId, tokenAddress) {
   return { address: ethers.getAddress(tokenAddress), symbol, name, decimals: Number(decimals) };
 }
 
-module.exports = { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, getCurveCoin, suggestRoutes, resolveToken, getProvider };
+module.exports = { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, getCurveCoin, suggestRoutes, resolveToken, getProvider };
