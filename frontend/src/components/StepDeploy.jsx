@@ -62,8 +62,6 @@ export function StepDeploy({ form, dryResult, onBack, onReset }) {
       strategist:   form.strategist,
       isStable:     form.isStable,
       pendingRewardsFunctionName: form.pendingRewardsFunctionName,
-      // Aura-specific
-      nativeIndex:  form.nativeIndex,
       // Convex-specific
       curvePool:    form.curvePool,
       coinIndex:    form.coinIndex,

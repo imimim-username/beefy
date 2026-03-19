@@ -157,15 +157,20 @@ contract StrategyCurveConvexLP is StratFeeManager, ReentrancyGuard {
 
     // ── Harvest ───────────────────────────────────────────────────────────────
 
-    function harvest() external onlyManager {
-        _harvest(msg.sender);
-    }
-
-    function harvestWithCallFee(address _callFeeRecipient) external {
-        _harvest(_callFeeRecipient);
-    }
+    /**
+     * @notice Permissionless harvest — anyone may call to trigger compounding.
+     *         The tx.origin receives the call fee portion of harvest fees.
+     */
+    function harvest() external { _harvest(tx.origin); }
+    function harvestWithCallFee(address _callFeeRecipient) external { _harvest(_callFeeRecipient); }
 
     function _harvest(address _callFeeRecipient) internal {
+        // Earmark rewards if the Convex reward period has expired; prevents silent
+        // zero-harvests when the epoch rolls over between keeper runs.
+        if (IConvexRewardPool(rewardPool).periodFinish() < block.timestamp) {
+            IConvexBooster(booster).earmarkRewards(pid);
+        }
+
         // Claim CRV + CVX + any extra rewards
         IConvexRewardPool(rewardPool).getReward(address(this), true);
 

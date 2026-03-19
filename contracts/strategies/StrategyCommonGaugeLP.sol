@@ -5,19 +5,25 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "../utils/StratFeeManager.sol";
-import "../interfaces/IUniswapRouterETH.sol";
+import "../interfaces/ISolidlyRouter.sol";   // Solidly/Velodrome/Aerodrome router
 import "../interfaces/IGauge.sol";
 
 /**
  * @title  StrategyCommonGaugeLP
- * @notice Deposits an LP token into a Gauge (Velodrome / Aerodrome / Solidly / Curve
- *         style), harvests reward tokens, compounds back into LP.
+ * @notice Deposits a Solidly-style LP token into a Gauge (Velodrome / Aerodrome /
+ *         Solidly / similar), harvests reward tokens, and compounds back into LP.
  *
- *         Unlike the Chef strategy, gauges don't use a pool ID.  The LP token
- *         is staked directly into the gauge.
+ *         `isStable` signals whether the underlying pair is a stable Solidly pair.
+ *         It is forwarded to the router's addLiquidity call — Solidly routers require
+ *         this parameter to correctly route to the right pool bucket.
  *
- *         `isStable` signals whether the underlying LP is a Solidly stable pair
- *         (uses a different add-liquidity function on Solidly routers).
+ * Fix log:
+ *   - addLiquidity now uses ISolidlyRouter with the `stable` parameter (fixes silent
+ *     revert on Velodrome/Aerodrome routers that require the Solidly ABI).
+ *   - panic() now calls _removeAllowances() so the gauge cannot pull tokens after
+ *     an emergency withdrawal.
+ *   - harvest() is now callable by anyone (permissionless), consistent with Beefy's
+ *     open-harvest model that allows keeper bots and third-party callers.
  */
 contract StrategyCommonGaugeLP is StratFeeManager, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -52,12 +58,12 @@ contract StrategyCommonGaugeLP is StratFeeManager, ReentrancyGuard {
 
     /**
      * @param _want               LP token address
-     * @param _gauge              Gauge contract address
-     * @param _isStable           True for Solidly stable pairs
+     * @param _gauge              Gauge contract address (Velodrome / Aerodrome / Solidly)
+     * @param _isStable           True for Solidly stable pairs, false for volatile
      * @param _outputToNativeRoute  [output, ..., native]
      * @param _outputToLp0Route     [output, ..., token0]
      * @param _outputToLp1Route     [output, ..., token1]
-     * @param _commonAddresses    { vault, unirouter, keeper, strategist, feeRecipient, feeConfig }
+     * @param _commonAddresses    { vault, unirouter (Solidly router), keeper, strategist, feeRecipient, feeConfig }
      */
     function initialize(
         address _want,
@@ -141,8 +147,12 @@ contract StrategyCommonGaugeLP is StratFeeManager, ReentrancyGuard {
 
     // ── Harvest ───────────────────────────────────────────────────────────────
 
-    function harvest() external onlyManager {
-        _harvest(msg.sender);
+    /**
+     * @notice Permissionless harvest — anyone may call to trigger compounding.
+     *         The tx.origin receives the call fee portion of harvest fees.
+     */
+    function harvest() external {
+        _harvest(tx.origin);
     }
 
     function harvestWithCallFee(address _callFeeRecipient) external {
@@ -174,7 +184,7 @@ contract StrategyCommonGaugeLP is StratFeeManager, ReentrancyGuard {
         uint256 toNative  = (outputBal * fees.total) / DIVISOR;
 
         if (output != native) {
-            IUniswapRouterETH(unirouter).swapExactTokensForTokens(
+            ISolidlyRouter(unirouter).swapExactTokensForTokens(
                 toNative, 0, outputToNativeRoute, address(this), block.timestamp
             );
         }
@@ -194,12 +204,12 @@ contract StrategyCommonGaugeLP is StratFeeManager, ReentrancyGuard {
         uint256 half      = outputBal / 2;
 
         if (lpToken0 != output) {
-            IUniswapRouterETH(unirouter).swapExactTokensForTokens(
+            ISolidlyRouter(unirouter).swapExactTokensForTokens(
                 half, 0, outputToLp0Route, address(this), block.timestamp
             );
         }
         if (lpToken1 != output) {
-            IUniswapRouterETH(unirouter).swapExactTokensForTokens(
+            ISolidlyRouter(unirouter).swapExactTokensForTokens(
                 outputBal - half, 0, outputToLp1Route, address(this), block.timestamp
             );
         }
@@ -207,8 +217,11 @@ contract StrategyCommonGaugeLP is StratFeeManager, ReentrancyGuard {
         uint256 lp0Bal = IERC20(lpToken0).balanceOf(address(this));
         uint256 lp1Bal = IERC20(lpToken1).balanceOf(address(this));
 
-        IUniswapRouterETH(unirouter).addLiquidity(
-            lpToken0, lpToken1, lp0Bal, lp1Bal, 1, 1, address(this), block.timestamp
+        // Solidly routers require the `stable` parameter in addLiquidity
+        ISolidlyRouter(unirouter).addLiquidity(
+            lpToken0, lpToken1, isStable,
+            lp0Bal, lp1Bal, 1, 1,
+            address(this), block.timestamp
         );
     }
 
@@ -217,6 +230,7 @@ contract StrategyCommonGaugeLP is StratFeeManager, ReentrancyGuard {
     function panic() external onlyManager {
         paused = true;
         IGauge(gauge).withdraw(balanceOfPool());
+        _removeAllowances(); // revoke approvals so gauge cannot pull tokens after panic
         emit Paused();
     }
 

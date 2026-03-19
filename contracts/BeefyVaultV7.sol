@@ -9,10 +9,18 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 /**
  * @title  BeefyVaultV7
  * @notice ERC-20 vault that wraps a yield-bearing strategy.
- *         Users deposit `want` tokens, receive moo-tokens representing
- *         their share of the pool.  The strategy handles all yield logic.
+ *         Users deposit `want` tokens and receive moo-tokens (shares).
  *
- *         This is a simplified but functionally complete Beefy V7 vault.
+ * This is a simplified but functionally complete Beefy V7 vault intended
+ * for direct deployment (not proxy/clone).  It stores vault name and symbol
+ * in custom storage slots so initialize() can set them correctly even though
+ * OpenZeppelin 5.x ERC20 initialises them in the constructor.
+ *
+ * Fix log:
+ *   - _vaultName / _vaultSymbol storage overrides so each vault has its own
+ *     name and symbol rather than the constructor default "Beefy Vault"/"mooVault".
+ *   - proposeStrat() validates that the candidate strategy's want token matches
+ *     the vault's want token, preventing accidental strategy swaps.
  */
 contract BeefyVaultV7 is ERC20, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -22,20 +30,37 @@ contract BeefyVaultV7 is ERC20, Ownable, ReentrancyGuard {
         uint256 proposedTime;
     }
 
+    // Custom name/symbol storage — override ERC20's constructor-locked values
+    string private _vaultName;
+    string private _vaultSymbol;
+
     IERC20  public want;
     address public strategy;
     StratCandidate public stratCandidate;
     uint256 public approvalDelay;
 
-    bool    private initialized;
+    bool private initialized;
 
     event NewStratCandidate(address implementation);
     event UpgradeStrat(address implementation);
 
     constructor() ERC20("Beefy Vault", "mooVault") Ownable(msg.sender) {}
 
+    // ── ERC20 name/symbol overrides ──────────────────────────────────────────
+
+    function name()   public view override returns (string memory) {
+        return bytes(_vaultName).length > 0 ? _vaultName   : super.name();
+    }
+
+    function symbol() public view override returns (string memory) {
+        return bytes(_vaultSymbol).length > 0 ? _vaultSymbol : super.symbol();
+    }
+
+    // ── Initializer ──────────────────────────────────────────────────────────
+
     /**
-     * @notice Initialize vault (called once by the deploy script).
+     * @notice Called once by the deploy script after deployment.
+     *         Equivalent to what BeefyVaultV7Factory would call on a fresh clone.
      */
     function initialize(
         address _strategy,
@@ -44,14 +69,11 @@ contract BeefyVaultV7 is ERC20, Ownable, ReentrancyGuard {
         uint256 _approvalDelay
     ) external {
         require(!initialized, "already initialized");
-        initialized  = true;
-        strategy     = _strategy;
+        initialized   = true;
+        strategy      = _strategy;
         approvalDelay = _approvalDelay;
-
-        // Override ERC20 name/symbol by storing — note: OpenZeppelin 5.x
-        // doesn't expose setters, so we shadow with custom storage via init.
-        // For deploy purposes the constructor defaults are fine; a full
-        // production vault would use an upgradeable proxy pattern.
+        _vaultName    = _name;
+        _vaultSymbol  = _symbol;
 
         // Resolve the want token from the strategy
         (bool ok, bytes memory data) = _strategy.call(abi.encodeWithSignature("want()"));
@@ -59,7 +81,7 @@ contract BeefyVaultV7 is ERC20, Ownable, ReentrancyGuard {
         want = IERC20(abi.decode(data, (address)));
     }
 
-    // ── View helpers ────────────────────────────────────────────────────────
+    // ── View helpers ─────────────────────────────────────────────────────────
 
     function balance() public view returns (uint256) {
         return want.balanceOf(address(this)) + stratBalance();
@@ -90,7 +112,7 @@ contract BeefyVaultV7 is ERC20, Ownable, ReentrancyGuard {
         want.safeTransferFrom(msg.sender, address(this), _amount);
         earn();
         uint256 _after = balance();
-        _amount = _after - _pool; // account for deflationary tokens
+        _amount = _after - _pool;
         uint256 shares;
         if (totalSupply() == 0) {
             shares = _amount;
@@ -133,7 +155,12 @@ contract BeefyVaultV7 is ERC20, Ownable, ReentrancyGuard {
     // ── Strategy upgrade ─────────────────────────────────────────────────────
 
     function proposeStrat(address _implementation) external onlyOwner {
+        // Vault reference must match
         require(address(this) == IStrat(_implementation).vault(), "proposal mismatch");
+        // Want token must match to prevent deploying a strategy for a different asset
+        (bool ok, bytes memory data) = _implementation.staticcall(abi.encodeWithSignature("want()"));
+        require(ok, "candidate want() failed");
+        require(abi.decode(data, (address)) == address(want), "different want");
         stratCandidate = StratCandidate(_implementation, block.timestamp);
         emit NewStratCandidate(_implementation);
     }

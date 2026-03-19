@@ -75,7 +75,6 @@ export function Step7Review({ form, onDryRun, onBack }) {
 
         {/* Aura */}
         {isAura && <Row label="Aura Pool ID"     value={String(form.poolId)} />}
-        {isAura && <Row label="Native Index"      value={String(form.nativeIndex)} />}
 
         {/* Convex */}
         {isConvex && <Row label="Convex Pool ID"  value={String(form.poolId)} />}

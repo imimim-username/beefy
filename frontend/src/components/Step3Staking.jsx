@@ -28,9 +28,6 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
   const [poolId,      setPoolId]      = useState(form.poolId !== undefined ? String(form.poolId) : '');
   const [pendingFn,   setPendingFn]   = useState(form.pendingRewardsFunctionName || '');
 
-  // Aura-specific
-  const [nativeIndex, setNativeIndex] = useState(form.nativeIndex !== undefined ? String(form.nativeIndex) : '');
-
   // Convex-specific
   const [curvePool,  setCurvePool]  = useState(form.curvePool  || '');
   const [coinIndex,  setCoinIndex]  = useState(form.coinIndex  !== undefined ? String(form.coinIndex) : '');
@@ -142,7 +139,6 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
     setStratType(t);
     setStatus(''); setMsg('');
     setStakingAddr(''); setPoolId(''); setPendingFn('');
-    setNativeIndex('');
     setCurvePool(''); setCoinIndex(''); setNCoins('2');
     setConvexCoin(null); setCoinStatus(''); setCoinMsg('');
   }
@@ -158,7 +154,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
 
   /* ── canProceed ───────────────────────────────────────────────────────────── */
   const validationOk = status === 'ok';
-  const auraReady    = stratType === 'aura'   && validationOk && nativeIndex !== '';
+  const auraReady    = stratType === 'aura'   && validationOk;
   const convexReady  = stratType === 'convex' && validationOk && convexCoin !== null && nCoins !== '';
   const basicReady   = (stratType === 'chef' || stratType === 'gauge') && validationOk;
   const canProceed   = auraReady || convexReady || basicReady;
@@ -172,7 +168,6 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
       poolId:       (stratType !== 'gauge') ? Number(poolId) : undefined,
       pendingRewardsFunctionName: stratType === 'chef' ? (pendingFn.trim() || undefined) : undefined,
       isStable:     stratType === 'gauge' ? form.lpInfo?.isStable : undefined,
-      nativeIndex:  stratType === 'aura'   ? Number(nativeIndex) : undefined,
       curvePool:    stratType === 'convex' ? curvePool  : undefined,
       coinIndex:    stratType === 'convex' ? Number(coinIndex) : undefined,
       nCoins:       stratType === 'convex' ? Number(nCoins)    : undefined,
@@ -300,24 +295,6 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
             <br /><span style={{ color: 'var(--border)' }}>This is used for route calculation.</span>
           </div>
         </PixelBox>
-      )}
-
-      {/* ── Aura: native token index (shown after validation succeeds) ──────── */}
-      {stratType === 'aura' && status === 'ok' && (
-        <Field
-          label="Native Token Index"
-          hint="0-based index of WETH/native in this Balancer pool's token array"
-        >
-          <input
-            className="pixel-input"
-            type="number"
-            min="0"
-            placeholder="e.g. 0"
-            value={nativeIndex}
-            onChange={e => setNativeIndex(e.target.value)}
-            style={{ width: '80px' }}
-          />
-        </Field>
       )}
 
       {/* ── Convex: curve pool + coin index + nCoins (shown after validation) ─ */}

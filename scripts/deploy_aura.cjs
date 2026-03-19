@@ -22,7 +22,7 @@ async function main() {
     want,                  // Balancer Pool Token (BPT)
     staking: boosterAddr,  // Aura Booster address
     poolId: auraPoolId,    // Aura pool ID
-    nativeIndex,           // Index of WETH in the Balancer pool token array
+    // nativeIndex removed — strategy resolves it dynamically from pool token list
     outputToNativeRoute,   // [BAL, ..., WETH]
     vaultName,
     vaultSymbol,
@@ -94,11 +94,11 @@ async function main() {
     beefyAddresses.beefyFeeConfig,
   ];
 
+  // nativeIndex removed from initialize() — strategy resolves it dynamically
   const txStrat = await strategy.initialize(
     want,
     boosterAddr,
     Number(auraPoolId),
-    Number(nativeIndex),
     outputToNativeRoute,
     commonAddresses
   );

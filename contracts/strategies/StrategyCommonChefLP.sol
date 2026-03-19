@@ -144,8 +144,12 @@ contract StrategyCommonChefLP is StratFeeManager, ReentrancyGuard {
 
     // ── Harvest ───────────────────────────────────────────────────────────────
 
-    function harvest() external onlyManager {
-        _harvest(msg.sender);
+    /**
+     * @notice Permissionless harvest — anyone may call to trigger compounding.
+     *         The tx.origin receives the call fee portion of harvest fees.
+     */
+    function harvest() external {
+        _harvest(tx.origin);
     }
 
     function harvestWithCallFee(address _callFeeRecipient) external {
@@ -221,6 +225,7 @@ contract StrategyCommonChefLP is StratFeeManager, ReentrancyGuard {
     function panic() external onlyManager {
         paused = true;
         IMasterChef(chef).emergencyWithdraw(poolId);
+        _removeAllowances(); // revoke approvals so chef cannot pull tokens after panic
         emit Paused();
     }
 
