@@ -16,7 +16,7 @@ module.exports = {
   },
   networks: {
     ethereum: {
-      url: rpc('RPC_ETH', 'https://eth.llamarpc.com'),
+      url: rpc('RPC_ETH', 'https://ethereum.publicnode.com'),
       chainId: 1,
       accounts: [pk],
     },

@@ -111,6 +111,7 @@ async function dryRun(params) {
 
 /**
  * Execute on the real network.
+ * Retries up to MAX_RETRIES times on transient RPC errors (502/503/504).
  * @param {DeployParams} params
  * @returns {Promise<{ok, result?, error?}>}
  */
@@ -122,19 +123,37 @@ async function execute(params) {
   writeParamsFile(fullParams);
 
   const script = `scripts/deploy_${params.strategyType}.cjs`;
-  const { stdout, stderr, exitCode } = await runHardhat(
-    [script, '--network', chain.hardhatNetwork]
-  );
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 5000;
 
-  if (exitCode !== 0) {
+  const isTransientError = (stderr) =>
+    /error code: 50[234]|ECONNRESET|ETIMEDOUT|ECONNREFUSED|socket hang up/i.test(stderr);
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const { stdout, stderr, exitCode } = await runHardhat(
+      [script, '--network', chain.hardhatNetwork]
+    );
+
+    if (exitCode === 0) {
+      const result = parseResult(stdout);
+      if (!result) {
+        return { ok: false, error: 'Deploy script did not return DEPLOY_RESULT', stdout };
+      }
+      return { ok: true, result };
+    }
+
+    const isTransient = isTransientError(stderr + stdout);
+    if (isTransient && attempt < MAX_RETRIES) {
+      const delay = RETRY_DELAY_MS * attempt;
+      process.stderr.write(
+        `[deployer] RPC error on attempt ${attempt}/${MAX_RETRIES} — retrying in ${delay / 1000}s...\n`
+      );
+      await new Promise(r => setTimeout(r, delay));
+      continue;
+    }
+
     return { ok: false, error: stderr || 'Hardhat exited with code ' + exitCode, stdout };
   }
-
-  const result = parseResult(stdout);
-  if (!result) {
-    return { ok: false, error: 'Deploy script did not return DEPLOY_RESULT', stdout };
-  }
-  return { ok: true, result };
 }
 
 module.exports = { dryRun, execute };
