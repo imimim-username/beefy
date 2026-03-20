@@ -22,9 +22,9 @@ async function main() {
     want,                  // Balancer Pool Token (BPT)
     staking: boosterAddr,  // Aura Booster address
     poolId: auraPoolId,    // Aura pool ID
-    // nativeIndex removed — strategy resolves it dynamically from pool token list
     balancerV3Router,      // Balancer v3 Router address; undefined/null for v2 pools
     outputToNativeRoute,   // [BAL, ..., WETH]
+    rewardTokens,          // [AURA, ...] — extra reward tokens entered by user in Step 4
     vaultName,
     vaultSymbol,
     unirouter,
@@ -33,17 +33,26 @@ async function main() {
     dryRun,
   } = params;
 
+  // AURA is auto-distributed on every getReward() alongside BAL, but is NOT
+  // reliably detectable from extraRewards (stash token wrapping). The user
+  // must supply it explicitly as the first entry in rewardTokens.
+  const outputAddr = (outputToNativeRoute[0] || '').toLowerCase();
+  const ZERO = '0x0000000000000000000000000000000000000000';
+  const auraAddr = (rewardTokens || []).find(t => t.toLowerCase() !== outputAddr) || ZERO;
+  if (auraAddr === ZERO) {
+    console.warn('[aura-deploy] WARNING: no AURA token found in rewardTokens — AURA compounding disabled');
+  }
+
   console.log(`\n[aura-deploy] mode=${dryRun ? 'DRY-RUN (fork)' : 'LIVE'} network=${network.name} chainId=${chainId}`);
-  const v3Router = balancerV3Router || '0x0000000000000000000000000000000000000000';
+  const v3Router = balancerV3Router || ZERO;
   console.log(`[aura-deploy] want=${want} booster=${boosterAddr} auraPoolId=${auraPoolId}`);
+  console.log(`[aura-deploy] aura=${auraAddr}`);
   console.log(`[aura-deploy] balancerV3Router=${v3Router} (${balancerV3Router ? 'v3 pool' : 'v2 pool'}`);
 
   const [deployer] = await ethers.getSigners();
   const strategistAddress = strategistParam || deployer.address;
   console.log(`[aura-deploy] deployer=${deployer.address}`);
   console.log(`[aura-deploy] strategist=${strategistAddress}`);
-
-  const ZERO = '0x0000000000000000000000000000000000000000';
 
   // ── 1. Deploy or clone vault ───────────────────────────────────────────────
   let vaultAddress;
@@ -97,13 +106,14 @@ async function main() {
     beefyAddresses.beefyFeeConfig,
   ];
 
-  // nativeIndex removed from initialize() — strategy resolves it dynamically.
+  // _aura: explicit AURA token address (auto-distributed alongside BAL by Aura Finance).
   // balancerV3Router: pass address(0) for v2 pools; v3 router for Balancer v3 pools.
   const txStrat = await strategy.initialize(
     want,
     boosterAddr,
     Number(auraPoolId),
     outputToNativeRoute,
+    auraAddr,
     v3Router,
     commonAddresses
   );

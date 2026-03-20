@@ -70,6 +70,8 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
      * @param _booster            Aura Booster address
      * @param _pid                Aura pool ID
      * @param _outputToNativeRoute [BAL, ..., WETH]
+     * @param _aura               AURA token address (auto-distributed alongside BAL on
+     *                            every getReward(); pass address(0) to disable compounding)
      * @param _balancerV3Router   Balancer v3 Router; pass address(0) for v2 pools.
      * @param _commonAddresses    {vault, unirouter, keeper, strategist, feeRecipient, feeConfig}
      */
@@ -78,6 +80,7 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
         address _booster,
         uint256 _pid,
         address[] calldata _outputToNativeRoute,
+        address _aura,
         address _balancerV3Router,
         CommonAddresses calldata _commonAddresses
     ) external onlyOwner {
@@ -97,11 +100,10 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
         (,,, address _rewardPool,,) = IAuraBooster(_booster).poolInfo(_pid);
         rewardPool = _rewardPool;
 
-        // Auto-detect AURA as the first extra reward token
-        if (IAuraRewardPool(_rewardPool).extraRewardsLength() > 0) {
-            address extraPool = IAuraRewardPool(_rewardPool).extraRewards(0);
-            aura = IAuraRewardPool(extraPool).rewardToken();
-        }
+        // AURA is passed explicitly — it is auto-distributed alongside BAL on
+        // every getReward() call and is NOT reliably detectable via extraRewards()
+        // (Aura wraps it in a stash token that reverts on approve).
+        aura = _aura;
 
         // Auto-detect Balancer v2 vs v3 by probing getPoolId()
         (bool v2ok, bytes memory v2data) = _want.staticcall(

@@ -4,6 +4,7 @@
 
 // File @openzeppelin/contracts/utils/Context.sol@v5.6.1
 
+// Original license: SPDX_License_Identifier: MIT
 // OpenZeppelin Contracts (last updated v5.0.1) (utils/Context.sol)
 
 pragma solidity ^0.8.20;
@@ -35,9 +36,9 @@ abstract contract Context {
 
 // File @openzeppelin/contracts/access/Ownable.sol@v5.6.1
 
+// Original license: SPDX_License_Identifier: MIT
 // OpenZeppelin Contracts (last updated v5.0.0) (access/Ownable.sol)
 
-pragma solidity ^0.8.20;
 
 /**
  * @dev Contract module which provides a basic access control mechanism, where
@@ -136,9 +137,9 @@ abstract contract Ownable is Context {
 
 // File @openzeppelin/contracts/utils/introspection/IERC165.sol@v5.6.1
 
+// Original license: SPDX_License_Identifier: MIT
 // OpenZeppelin Contracts (last updated v5.4.0) (utils/introspection/IERC165.sol)
 
-pragma solidity >=0.4.16;
 
 /**
  * @dev Interface of the ERC-165 standard, as defined in the
@@ -164,16 +165,16 @@ interface IERC165 {
 
 // File @openzeppelin/contracts/interfaces/IERC165.sol@v5.6.1
 
+// Original license: SPDX_License_Identifier: MIT
 // OpenZeppelin Contracts (last updated v5.4.0) (interfaces/IERC165.sol)
 
-pragma solidity >=0.4.16;
 
 
 // File @openzeppelin/contracts/token/ERC20/IERC20.sol@v5.6.1
 
+// Original license: SPDX_License_Identifier: MIT
 // OpenZeppelin Contracts (last updated v5.4.0) (token/ERC20/IERC20.sol)
 
-pragma solidity >=0.4.16;
 
 /**
  * @dev Interface of the ERC-20 standard as defined in the ERC.
@@ -253,16 +254,16 @@ interface IERC20 {
 
 // File @openzeppelin/contracts/interfaces/IERC20.sol@v5.6.1
 
+// Original license: SPDX_License_Identifier: MIT
 // OpenZeppelin Contracts (last updated v5.4.0) (interfaces/IERC20.sol)
 
-pragma solidity >=0.4.16;
 
 
 // File @openzeppelin/contracts/interfaces/IERC1363.sol@v5.6.1
 
+// Original license: SPDX_License_Identifier: MIT
 // OpenZeppelin Contracts (last updated v5.4.0) (interfaces/IERC1363.sol)
 
-pragma solidity >=0.6.2;
 
 
 /**
@@ -347,9 +348,9 @@ interface IERC1363 is IERC20, IERC165 {
 
 // File @openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol@v5.6.1
 
+// Original license: SPDX_License_Identifier: MIT
 // OpenZeppelin Contracts (last updated v5.5.0) (token/ERC20/utils/SafeERC20.sol)
 
-pragma solidity ^0.8.20;
 
 
 /**
@@ -628,10 +629,10 @@ library SafeERC20 {
 
 // File @openzeppelin/contracts/utils/StorageSlot.sol@v5.6.1
 
+// Original license: SPDX_License_Identifier: MIT
 // OpenZeppelin Contracts (last updated v5.1.0) (utils/StorageSlot.sol)
 // This file was procedurally generated from scripts/generate/templates/StorageSlot.js.
 
-pragma solidity ^0.8.20;
 
 /**
  * @dev Library for reading and writing primitive types to specific storage slots.
@@ -774,9 +775,9 @@ library StorageSlot {
 
 // File @openzeppelin/contracts/utils/ReentrancyGuard.sol@v5.6.1
 
+// Original license: SPDX_License_Identifier: MIT
 // OpenZeppelin Contracts (last updated v5.5.0) (utils/ReentrancyGuard.sol)
 
-pragma solidity ^0.8.20;
 
 /**
  * @dev Contract module that helps prevent reentrant calls to a function.
@@ -894,7 +895,7 @@ abstract contract ReentrancyGuard {
 
 // File contracts/interfaces/IAuraBooster.sol
 
-pragma solidity ^0.8.19;
+// Original license: SPDX_License_Identifier: MIT
 
 interface IAuraBooster {
     function deposit(uint256 pid, uint256 amount, bool stake) external returns (bool);
@@ -913,7 +914,7 @@ interface IAuraBooster {
 
 // File contracts/interfaces/IAuraRewardPool.sol
 
-pragma solidity ^0.8.19;
+// Original license: SPDX_License_Identifier: MIT
 
 interface IAuraRewardPool {
     function getReward() external;
@@ -929,7 +930,7 @@ interface IAuraRewardPool {
 
 // File contracts/interfaces/IBalancerV3Router.sol
 
-pragma solidity ^0.8.19;
+// Original license: SPDX_License_Identifier: MIT
 
 /**
  * @notice Balancer v3 Router — used for adding/removing liquidity.
@@ -973,7 +974,7 @@ interface IBalancerV3Vault {
 
 // File contracts/interfaces/IBalancerVault.sol
 
-pragma solidity ^0.8.19;
+// Original license: SPDX_License_Identifier: MIT
 
 interface IBalancerVault {
     struct JoinPoolRequest {
@@ -1033,7 +1034,7 @@ interface IBalancerPool {
 
 // File contracts/interfaces/IUniswapRouterETH.sol
 
-pragma solidity ^0.8.19;
+// Original license: SPDX_License_Identifier: MIT
 
 interface IUniswapRouterETH {
     function addLiquidity(
@@ -1062,7 +1063,7 @@ interface IUniswapRouterETH {
 
 // File contracts/utils/StratFeeManager.sol
 
-pragma solidity ^0.8.19;
+// Original license: SPDX_License_Identifier: MIT
 
 interface IFeeConfig {
     struct FeeCategory {
@@ -1179,7 +1180,7 @@ contract StratFeeManager is Ownable {
 
 // File contracts/strategies/StrategyAuraLP.sol
 
-pragma solidity ^0.8.19;
+// Original license: SPDX_License_Identifier: MIT
 
 
 
@@ -1248,6 +1249,8 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
      * @param _booster            Aura Booster address
      * @param _pid                Aura pool ID
      * @param _outputToNativeRoute [BAL, ..., WETH]
+     * @param _aura               AURA token address (auto-distributed alongside BAL on
+     *                            every getReward(); pass address(0) to disable compounding)
      * @param _balancerV3Router   Balancer v3 Router; pass address(0) for v2 pools.
      * @param _commonAddresses    {vault, unirouter, keeper, strategist, feeRecipient, feeConfig}
      */
@@ -1256,6 +1259,7 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
         address _booster,
         uint256 _pid,
         address[] calldata _outputToNativeRoute,
+        address _aura,
         address _balancerV3Router,
         CommonAddresses calldata _commonAddresses
     ) external onlyOwner {
@@ -1275,11 +1279,10 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
         (,,, address _rewardPool,,) = IAuraBooster(_booster).poolInfo(_pid);
         rewardPool = _rewardPool;
 
-        // Auto-detect AURA as the first extra reward token
-        if (IAuraRewardPool(_rewardPool).extraRewardsLength() > 0) {
-            address extraPool = IAuraRewardPool(_rewardPool).extraRewards(0);
-            aura = IAuraRewardPool(extraPool).rewardToken();
-        }
+        // AURA is passed explicitly — it is auto-distributed alongside BAL on
+        // every getReward() call and is NOT reliably detectable via extraRewards()
+        // (Aura wraps it in a stash token that reverts on approve).
+        aura = _aura;
 
         // Auto-detect Balancer v2 vs v3 by probing getPoolId()
         (bool v2ok, bytes memory v2data) = _want.staticcall(
