@@ -127,6 +127,10 @@ contract StrategyAuraLP is StratFeeManager, ReentrancyGuard {
 
     // ── Vault interface ───────────────────────────────────────────────────────
 
+    /// @notice Called by the Beefy vault before every deposit. No-op here but
+    ///         required by the official BeefyVaultV7Factory vault implementation.
+    function beforeDeposit() external {}
+
     function deposit() external nonReentrant {
         require(!paused, "paused");
         _deposit();
