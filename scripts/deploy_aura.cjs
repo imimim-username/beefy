@@ -34,6 +34,7 @@ async function main() {
     poolId: auraPoolId,    // Aura pool ID (numeric)
     rewardTokens,          // [{ address, symbol }, ...] — BAL + AURA from Step 4
     depositToken,          // one of the BPT's underlying tokens (for single-asset join)
+    harvestOnDeposit,      // bool — call setHarvestOnDeposit(true) after init if set
     vaultName,
     vaultSymbol,
     strategist: strategistParam,
@@ -165,6 +166,18 @@ async function main() {
   );
   await initTx.wait();
   console.log(`[aura-deploy] strategy initialized`);
+
+  // ── 7. Set harvestOnDeposit (optional) ───────────────────────────────────────
+  // Must be called while the deployer still owns the strategy (before transferOwnership).
+  // setHarvestOnDeposit(true) also sets lockDuration = 0 (no profit lock-up delay).
+  if (harvestOnDeposit) {
+    const hodAbi = ['function setHarvestOnDeposit(bool _harvestOnDeposit) external'];
+    const stratHod = new ethers.Contract(stratAddress, hodAbi, deployer);
+    await (await stratHod.setHarvestOnDeposit(true)).wait();
+    console.log(`[aura-deploy] harvestOnDeposit set to true (lockDuration = 0)`);
+  } else {
+    console.log(`[aura-deploy] harvestOnDeposit left as false (default — keeper-scheduled)`);
+  }
 
   const result = {
     vaultAddress,

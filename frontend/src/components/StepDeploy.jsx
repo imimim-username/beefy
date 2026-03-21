@@ -437,7 +437,8 @@ export function StepDeploy({ form, dryResult, onBack, onReset }) {
       minterEnabled: form.minterEnabled,
       minter:        form.minter,
       // Aura: depositToken replaces manual swap routes
-      depositToken: form.depositToken,
+      depositToken:     form.depositToken,
+      harvestOnDeposit: form.harvestOnDeposit ?? false,
       beefyAddresses: chain?.beefyAddresses,
     };
   }

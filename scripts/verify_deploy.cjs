@@ -107,6 +107,14 @@ async function main() {
       vault: vaultAddress, swapper: BEEFY_SWAPPER, strategist: STRATEGIST }
   )).wait();
 
+  // Test setHarvestOnDeposit (both values to confirm the call works)
+  const hodAbi = ['function setHarvestOnDeposit(bool) external', 'function harvestOnDeposit() view returns (bool)'];
+  const stratHod = new ethers.Contract(stratAddress, hodAbi, deployer);
+  await (await stratHod.setHarvestOnDeposit(true)).wait();
+  const hodOn = await stratHod.harvestOnDeposit();
+  await (await stratHod.setHarvestOnDeposit(false)).wait();
+  const hodOff = await stratHod.harvestOnDeposit();
+
   // ── 6. Verify state ─────────────────────────────────────────────────────────
   console.log('\n══ Verification ══');
   let ok = 0, total = 0;
@@ -162,6 +170,11 @@ async function main() {
     total++;
     console.log('  ✗ deposit() reverted:', e.message.slice(0, 120));
   }
+
+  // harvestOnDeposit toggle
+  console.log('\n  ── setHarvestOnDeposit() ──');
+  check('harvestOnDeposit(true)',  String(hodOn),  'true');
+  check('harvestOnDeposit(false)', String(hodOff), 'false');
 
   console.log(`\n══ ${ok}/${total} checks passed ══`);
   if (ok < total) { console.log('SOME CHECKS FAILED'); process.exit(1); }
