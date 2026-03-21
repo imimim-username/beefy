@@ -98,26 +98,21 @@ async function main() {
   // ── 2. Create strategy via StrategyFactory ────────────────────────────────────
   // This clones Beefy's audited StrategyBalancerV3 implementation — no custom
   // contract is deployed. Required for Beefy to accept the vault listing.
+  // Factory emits: ProxyCreated(string strategyName, address proxy)
+  // Note: the vault factory also emits ProxyCreated(address proxy) — different topic hash
   const stratFactoryAbi = [
     'function createStrategy(string calldata _strategyName) external returns (address)',
-    'event StrategyCreated(string strategyName, address strategy)',
+    'event ProxyCreated(string strategyName, address proxy)',
   ];
   const stratFactoryContract = new ethers.Contract(stratFactory, stratFactoryAbi, deployer);
+
+  // Pre-compute strategy address via staticCall BEFORE sending the tx (correct nonce)
+  const stratAddress = await stratFactoryContract.createStrategy.staticCall(STRATEGY_NAME);
+  if (!stratAddress || stratAddress === ZERO) throw new Error('staticCall returned zero address for createStrategy');
+  console.log(`[aura-deploy] strategy address (pre-computed): ${stratAddress}`);
+
   const stratTx = await stratFactoryContract.createStrategy(STRATEGY_NAME);
-  const stratReceipt = await stratTx.wait();
-  let stratAddress;
-  const stratIface = new ethers.Interface(stratFactoryAbi);
-  for (const log of stratReceipt.logs) {
-    try {
-      const parsed = stratIface.parseLog(log);
-      if (parsed.name === 'StrategyCreated') { stratAddress = parsed.args.strategy; break; }
-    } catch {}
-  }
-  // Fallback: read return value via callStatic if event not found
-  if (!stratAddress) {
-    stratAddress = await stratFactoryContract.createStrategy.staticCall(STRATEGY_NAME);
-    if (!stratAddress || stratAddress === ZERO) throw new Error('Could not determine strategy address from StrategyFactory');
-  }
+  await stratTx.wait();
   console.log(`[aura-deploy] strategy created via factory: ${stratAddress}`);
 
   // ── 3. Initialize vault ───────────────────────────────────────────────────────
