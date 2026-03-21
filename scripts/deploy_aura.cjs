@@ -20,7 +20,7 @@ const path = require('path');
 const fs   = require('fs');
 
 const BALANCER_V3_VAULT = '0xbA1333333333a1BA1108E8412f11850A5C319bA9';
-const STRATEGY_NAME     = 'StrategyBalancerV3';
+const STRATEGY_NAME     = 'BalancerV3';
 const ZERO              = '0x0000000000000000000000000000000000000000';
 
 async function main() {
