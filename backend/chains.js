@@ -13,6 +13,10 @@
  * auraBooster       : Aura Finance Booster (for Balancer LP vaults)
  * convexBooster     : Convex Finance Booster (for Curve LP vaults)
  * balancerVault     : Balancer Vault — same address on every chain
+ * strategyFactory   : Beefy StrategyFactory — createStrategy("StrategyBalancerV3") clones
+ *                     the audited implementation (required for Aura vaults)
+ * beefySwapper      : Beefy universal swapper — handles all reward→native routing
+ *                     automatically (replaces manual outputToNativeRoute for Aura vaults)
  *
  * Addresses verified against api.beefy.finance/config/<chain>  (2024-03)
  */
@@ -36,6 +40,9 @@ const CHAINS = {
       auraBooster:       '0xA57b8d98dAE62B26Ec3bcC4a365338157060B234',
       convexBooster:     '0xF403C135812408BFbE8713b5A23a04b3D48AAE31',
       balancerVault:     '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
+      // Required for StrategyBalancerV3 (Aura vaults) — creates audited strategy clones
+      strategyFactory:   '0x52941De3eDE234ae6B8608597440Ac3394C64Ae8',
+      beefySwapper:      '0x0000830DF56616D58976A12D19d283B40e25BEEF',
     },
     blockExplorer: 'https://etherscan.io',
     hardhatNetwork: 'ethereum',

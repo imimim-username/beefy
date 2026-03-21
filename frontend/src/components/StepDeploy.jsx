@@ -10,8 +10,10 @@ const NETWORK_SHORTNAME = {
 };
 
 // Strategy type → Solidity file base name (for flatten command)
+// Note: Aura vaults use the official StrategyBalancerV3 via StrategyFactory —
+// no manual Etherscan verification is required (it auto-verifies as a proxy).
 const STRAT_FILE = {
-  aura:       'StrategyAuraLP',
+  aura:       null,  // factory clone — auto-verifies as proxy, no flatten needed
   chef:       'StrategyCommonChefLP',
   gauge:      'StrategyCommonGaugeLP',
   convex:     'StrategyCurveConvexLP',
@@ -129,9 +131,10 @@ function PostDeployChecklist({ result, form }) {
   const explorer       = chain.blockExplorer || '';
   const network        = NETWORK_SHORTNAME[form.chainId] || 'TODO-network';
   const stratOwner     = chain.beefyAddresses?.strategyOwner || 'TODO-multisig';
+  const isAura         = form.strategyType === 'aura';
   const stratFile      = STRAT_FILE[form.strategyType]      || 'StrategyTODO';
-  const flatFile       = `solPatch/${stratFile}_flat.sol`;
-  const contractFile   = `contracts/strategies/${stratFile}.sol`;
+  const flatFile       = stratFile ? `solPatch/${stratFile}_flat.sol` : null;
+  const contractFile   = stratFile ? `contracts/strategies/${stratFile}.sol` : null;
   const platformId     = PLATFORM_ID[form.strategyType]     || 'TODO-platform-id';
   const tokenProvider  = TOKEN_PROVIDER[form.strategyType]  || 'TODO-provider-id';
 
@@ -174,45 +177,75 @@ function PostDeployChecklist({ result, form }) {
       </div>
 
       {/* ── Step 1: Etherscan verification ─────────────────────────────── */}
-      <CheckStep num="1" title="VERIFY STRATEGY ON ETHERSCAN">
-        <p style={{ marginBottom: '4px' }}>
-          Generate a flattened single-file contract and submit it to Etherscan for source verification.
-          Run this from the project root:
-        </p>
-        <Code>{`npx hardhat flatten ${contractFile} > ${flatFile}`}</Code>
-        <p style={{ marginBottom: '4px' }}>
-          Then open the strategy contract on the block explorer:
-        </p>
-        {explorer ? (
-          <a
-            href={`${explorer}/address/${result.strategyAddress}#code`}
-            target="_blank" rel="noreferrer"
-            style={{ color: 'var(--green)', display: 'block', marginBottom: '4px' }}
-          >
-            → {explorer}/address/{result.strategyAddress}#code
-          </a>
-        ) : (
-          <Code>{`{blockExplorer}/address/${result.strategyAddress}#code`}</Code>
-        )}
-        <p>
-          Click <strong style={{ color: 'var(--gold)' }}>"Verify and Publish"</strong> → choose{' '}
-          <strong style={{ color: 'var(--gold)' }}>Solidity (Single file)</strong>, then set:
-        </p>
-        <Code>{`Compiler version : v0.8.28+...
+      {isAura ? (
+        <CheckStep num="1" title="VERIFY STRATEGY ON ETHERSCAN (AUTO)">
+          <p>
+            Because the strategy was created by Beefy's <Inline>StrategyFactory</Inline>,
+            it is a <strong style={{ color: 'var(--gold)' }}>beacon proxy</strong> pointing to
+            Beefy's audited <Inline>StrategyBalancerV3</Inline> implementation. Etherscan
+            auto-detects this and shows{' '}
+            <strong style={{ color: 'var(--gold)' }}>"Read as Proxy" / "Write as Proxy"</strong>{' '}
+            — no manual source submission is needed.
+          </p>
+          {explorer ? (
+            <a
+              href={`${explorer}/address/${result.strategyAddress}#code`}
+              target="_blank" rel="noreferrer"
+              style={{ color: 'var(--green)', display: 'block', margin: '6px 0' }}
+            >
+              → {explorer}/address/{result.strategyAddress}#code
+            </a>
+          ) : (
+            <Code>{`{blockExplorer}/address/${result.strategyAddress}#code`}</Code>
+          )}
+          <p style={{ color: '#aaa', marginTop: '4px' }}>
+            ℹ If the proxy implementation link does not appear immediately, wait a few minutes
+            for Etherscan to process the contract. If it still shows "Contract Source Code Not
+            Verified", you can manually submit the proxy verification request through Etherscan's
+            proxy detection form — but this is usually automatic.
+          </p>
+        </CheckStep>
+      ) : (
+        <CheckStep num="1" title="VERIFY STRATEGY ON ETHERSCAN">
+          <p style={{ marginBottom: '4px' }}>
+            Generate a flattened single-file contract and submit it to Etherscan for source verification.
+            Run this from the project root:
+          </p>
+          <Code>{`npx hardhat flatten ${contractFile} > ${flatFile}`}</Code>
+          <p style={{ marginBottom: '4px' }}>
+            Then open the strategy contract on the block explorer:
+          </p>
+          {explorer ? (
+            <a
+              href={`${explorer}/address/${result.strategyAddress}#code`}
+              target="_blank" rel="noreferrer"
+              style={{ color: 'var(--green)', display: 'block', marginBottom: '4px' }}
+            >
+              → {explorer}/address/{result.strategyAddress}#code
+            </a>
+          ) : (
+            <Code>{`{blockExplorer}/address/${result.strategyAddress}#code`}</Code>
+          )}
+          <p>
+            Click <strong style={{ color: 'var(--gold)' }}>"Verify and Publish"</strong> → choose{' '}
+            <strong style={{ color: 'var(--gold)' }}>Solidity (Single file)</strong>, then set:
+          </p>
+          <Code>{`Compiler version : v0.8.28+...
 EVM version      : paris         ← CRITICAL — bytecode will not match if wrong
 Optimization     : Yes, 200 runs
 License          : MIT (3)`}</Code>
-        <p>
-          Paste the full contents of <Inline>{flatFile}</Inline> into the source code field.
-          Leave <strong>Constructor Arguments</strong> blank — the strategy uses{' '}
-          <Inline>initialize()</Inline>, not a constructor.
-        </p>
-        <p style={{ color: '#aaa', marginTop: '6px' }}>
-          ℹ If Etherscan shows a bytecode mismatch, double-check the EVM version is set to{' '}
-          <Inline>paris</Inline> (not the default Shanghai/Cancun). The PUSH0 opcode difference
-          causes an exact byte-for-byte mismatch.
-        </p>
-      </CheckStep>
+          <p>
+            Paste the full contents of <Inline>{flatFile}</Inline> into the source code field.
+            Leave <strong>Constructor Arguments</strong> blank — the strategy uses{' '}
+            <Inline>initialize()</Inline>, not a constructor.
+          </p>
+          <p style={{ color: '#aaa', marginTop: '6px' }}>
+            ℹ If Etherscan shows a bytecode mismatch, double-check the EVM version is set to{' '}
+            <Inline>paris</Inline> (not the default Shanghai/Cancun). The PUSH0 opcode difference
+            causes an exact byte-for-byte mismatch.
+          </p>
+        </CheckStep>
+      )}
 
       {/* ── Step 2: Test deposit ────────────────────────────────────────── */}
       <CheckStep num="2" title="MAKE A SMALL TEST DEPOSIT INTO THE VAULT">
@@ -334,6 +367,36 @@ License          : MIT (3)`}</Code>
           discarded after the run completes — they do not create real contracts or use real funds.
         </p>
       </CheckStep>
+
+      {/* ── Step 5: beefy-api PR ────────────────────────────────────────── */}
+      <CheckStep num="5" title="SUBMIT A SECOND PR TO BEEFY-API">
+        <p>
+          The beefy-v2 UI PR (Step 4) is only for the frontend. Beefy's oracle/pricing system
+          also requires a PR to{' '}
+          <a
+            href="https://github.com/beefyfinance/beefy-api"
+            target="_blank" rel="noreferrer"
+            style={{ color: 'var(--green)' }}
+          >
+            github.com/beefyfinance/beefy-api
+          </a>
+          {' '}before the vault can go live in production.
+        </p>
+        <p style={{ marginTop: '6px' }}>
+          The beefy-api PR adds oracle pricing config so Beefy knows how to value the LP token.
+          Look at the most recently merged Balancer vault entry in{' '}
+          <Inline>packages/address-book/src/address-book/{network}/</Inline>{' '}
+          and model your entry on it.
+        </p>
+        <p style={{ marginTop: '6px', color: '#f99' }}>
+          ⚠ Without the beefy-api PR, the vault will show $0 TVL and be non-functional in the
+          UI even after the beefy-v2 PR is merged.
+        </p>
+        <p style={{ marginTop: '6px', color: '#aaa' }}>
+          ℹ The Beefy team may help with this PR if you ask nicely in their Discord — especially
+          for Balancer V3 pools where the pricing setup is non-trivial.
+        </p>
+      </CheckStep>
     </PixelBox>
   );
 }
@@ -373,8 +436,8 @@ export function StepDeploy({ form, dryResult, onBack, onReset }) {
       // CurveGauge
       minterEnabled: form.minterEnabled,
       minter:        form.minter,
-      // Aura v3
-      balancerV3Router: form.balancerV3Router,
+      // Aura: depositToken replaces manual swap routes
+      depositToken: form.depositToken,
       beefyAddresses: chain?.beefyAddresses,
     };
   }

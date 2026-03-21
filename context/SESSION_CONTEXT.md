@@ -119,7 +119,81 @@ context/
 
 ---
 
-## StrategyAuraLP — important notes
+## Aura vault architecture — IMPORTANT: use official StrategyBalancerV3
+
+Beefy will NOT accept custom-written strategy contracts without a paid audit.
+The correct approach is to use Beefy's audited `StrategyBalancerV3` via their
+`StrategyFactory`. No custom Solidity is deployed for Aura vaults.
+
+### How it works
+
+```
+StrategyFactory.createStrategy("StrategyBalancerV3")
+  → clones beacon proxy → points to audited implementation at 0xb115F39D2F63...
+```
+
+Harvest flow inside StrategyBalancerV3:
+1. `IAuraRewardPool(rewardPool).getReward()` — claims BAL + AURA
+2. BeefySwapper swaps BAL + AURA → native (WETH) automatically
+3. If `depositToken != native`, swaps native → depositToken
+4. Single-asset joins Balancer pool via `balancerVault.unlock(balancerJoin)` → BPT
+
+### Key addresses (Ethereum mainnet)
+
+| Name | Address |
+|---|---|
+| StrategyFactory | `0x52941De3eDE234ae6B8608597440Ac3394C64Ae8` |
+| BeefySwapper | `0x0000830DF56616D58976A12D19d283B40e25BEEF` |
+| StrategyBalancerV3 implementation (beacon) | `0xb115F39D2F63415f25B6220640d6851E3f087AFb` |
+
+### StrategyBalancerV3 initialize() signature
+
+```solidity
+function initialize(
+    address _gauge,          // from booster.poolInfo(pid)[2]
+    address _booster,        // Aura booster
+    address _balancerVault,  // 0xbA1333333333a1BA1108E8412f11850A5C319bA9
+    uint256 _pid,
+    address[] calldata _rewards,   // [BAL, AURA]
+    Addresses calldata _commonAddresses
+) external;
+
+struct Addresses {
+    address want;          // BPT (LP token)
+    address depositToken;  // pool token used for single-asset liquidity join
+    address factory;       // StrategyFactory address
+    address vault;         // vault address
+    address swapper;       // BeefySwapper address
+    address strategist;
+}
+```
+
+### depositToken selection
+
+Choose a pool token that is (preferably) the chain native (WETH on Ethereum).
+If `depositToken == native`, the strategy skips an extra swap step on harvest.
+
+### Etherscan verification for Aura strategy
+
+NOT REQUIRED to do manually. The strategy is a beacon proxy created by StrategyFactory.
+Etherscan auto-detects the proxy and shows "Read as Proxy / Write as Proxy" pointing
+to the known-good StrategyBalancerV3 implementation.
+
+### beefy-api PR (REQUIRED for production)
+
+In addition to the beefy-v2 UI PR, a second PR is needed to:
+`github.com/beefyfinance/beefy-api`
+This adds oracle/pricing config. Without it, the vault shows $0 TVL even after
+the beefy-v2 PR merges. Ask Beefy team in Discord for help with this.
+
+---
+
+## StrategyAuraLP — DEPRECATED / DO NOT USE FOR NEW DEPLOYMENTS
+
+Our custom `StrategyAuraLP.sol` was rejected by Beefy because it was not audited.
+It remains in the repo for reference but should not be deployed.
+
+### Historical notes (kept for reference)
 
 - Auto-detects Balancer v2 vs v3 at `initialize()` via `staticcall` probe on `getPoolId()`
 - v2: uses `IBalancerVault.joinPool(bytes32 poolId, ...)`
@@ -260,20 +334,21 @@ Returns `lpType`: `null` (V2/Solidly), `'balancer'`, or `'curve'`. Balancer also
 1. **Step1Chain** — select network
 2. **Step2LP** — enter LP token address; auto-detects type and shows BALANCER V2/V3 badge
 3. **Step3Staking** — pick strategy type (3×2 grid), enter staking address + pool ID; Curve pool fields appear after validation for convex/curvegauge/stakedao
-4. **Step4Rewards** — enter reward token addresses (for Aura: include AURA token here)
-5. **Step5Routes** — configure swap routes (outputToNative, outputToLp0/1, outputToCoin)
+4. **Step4Rewards** — enter reward token addresses (for Aura: [BAL, AURA] — pre-fill from chain token list)
+5. **Step5Routes** — for Aura: `depositToken` picker (select which pool token to use for liquidity join); for other strategies: swap route config
 6. **Step6VaultInfo** — vault name, symbol, strategist, unirouter
 7. **Step7Review** — full review of all parameters, shows correct fields per strategy type
-8. **StepDeploy** — dry-run → confirm → live deploy → **post-deploy checklist** (new)
+8. **StepDeploy** — dry-run → confirm → live deploy → **post-deploy checklist**
 
 ### Post-deploy checklist (StepDeploy.jsx — shown after every live deploy)
 
-Four inline steps with auto-filled links and addresses:
+Five inline steps with auto-filled links and addresses:
 
-1. **Verify strategy on Etherscan** — flatten command, exact compiler settings, direct link to `#code`
+1. **Verify strategy on Etherscan** — for Aura: explains auto-verification as beacon proxy (no manual submit); for other strategies: flatten command + compiler settings
 2. **Test deposit** — direct link to vault `#writeContract`, warning if deposit reverts
 3. **Transfer strategy ownership** — multisig address pre-filled from `chainInfo`, direct strategy `#writeContract` link
 4. **Submit beefy-v2 PR** — pre-filled JSON template (vault/strategy addr + moo-symbol auto-populated), field notes, PR title convention, CI error explanations
+5. **Submit beefy-api PR** — explains why second PR is needed (oracle/pricing), links to repo
 
 ---
 
@@ -360,16 +435,18 @@ The `execute()` function retries up to 3× with 5s/10s/15s backoff on transient 
 ## Recent commits (newest first)
 
 ```
+(pending) feat: use official StrategyBalancerV3 via StrategyFactory for Aura vaults
+           - deploy_aura.cjs: StrategyFactory.createStrategy("StrategyBalancerV3")
+           - chains.js / chainInfo.js: add strategyFactory + beefySwapper addresses
+           - Step5Routes.jsx: replace route config with depositToken picker for Aura
+           - StepDeploy.jsx: add depositToken to payload; Aura-aware post-deploy checklist;
+                             add Step 5 (beefy-api PR)
 bf6e0c4  feat: add post-deploy checklist to UI and README
 (prev)   fix: explicit _aura param in StrategyAuraLP.initialize()
 (prev)   fix: regenerate StrategyAuraLP_flat.sol into solPatch/ with beforeDeposit
 (prev)   fix: retry logic in deployer.js for transient RPC errors
 (prev)   fix: change ETH live RPC to ethereum.publicnode.com
 7e5f2a4  fix: add beforeDeposit() to StrategyAuraLP
-2c04e8f  chore: add flattened StrategyAuraLP.sol for Etherscan verification
-2d4e005  fix: explicitly set evmVersion to paris in hardhat config
-a2c1401  added context
-40d2847  fix: STASH-AURA approve revert + wrong Aura Booster address on mainnet
 ```
 
 ---

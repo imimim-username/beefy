@@ -25,6 +25,9 @@ export const CHAINS_INFO = {
       balancerV3Router:  '0x5C6fb490BDFD3246EB0bB062c168DeCAF4bD9FDd',
       // CRV Minter — only on mainnet; L2 Curve gauges stream CRV as a reward token
       crvMinter:         '0xd061D61a4d941c39E5453435B6345Dc261C2fcE0',
+      // Required for Aura vaults: StrategyFactory clones audited StrategyBalancerV3
+      strategyFactory:   '0x52941De3eDE234ae6B8608597440Ac3394C64Ae8',
+      beefySwapper:      '0x0000830DF56616D58976A12D19d283B40e25BEEF',
     },
   },
   56: {
