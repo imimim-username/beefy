@@ -21,6 +21,7 @@ async function main() {
     outputToNativeRoute,
     outputToLp0Route,
     outputToLp1Route,
+    harvestOnDeposit,
     vaultName,
     vaultSymbol,
     unirouter,
@@ -103,6 +104,17 @@ async function main() {
   );
   await txStrat.wait();
   console.log(`[gauge-deploy] strategy initialized`);
+  // ── Optional: harvestOnDeposit ───────────────────────────────────────────────
+  if (harvestOnDeposit) {
+    try {
+      const hodAbi = ['function setHarvestOnDeposit(bool _harvestOnDeposit) external'];
+      const stratHod = new ethers.Contract(stratAddress, hodAbi, deployer);
+      await (await stratHod.setHarvestOnDeposit(true)).wait();
+      console.log(`[gauge-deploy] harvestOnDeposit set to true`);
+    } catch (e) {
+      console.warn(`[gauge-deploy] setHarvestOnDeposit not supported by this strategy — skipped`);
+    }
+  }
 
   // ── 5. Transfer vault ownership to Beefy multisig ─────────────────────────
   const vaultOwner = beefyAddresses.vaultOwner;

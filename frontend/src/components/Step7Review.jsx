@@ -62,10 +62,8 @@ export function Step7Review({ form, onDryRun, onBack }) {
         <Row label="Vault Name"   value={form.vaultName} />
         <Row label="Vault Symbol" value={form.vaultSymbol} />
         <Row label="Strategist"   value={form.strategist || '(deployer address)'} addr={!!form.strategist} />
-        {form.strategyType === 'aura' && (
-          <Row label="Harvest on Deposit"
-               value={form.harvestOnDeposit ? 'YES (harvests on every deposit)' : 'NO — keeper-scheduled (default)'} />
-        )}
+        <Row label="Harvest on Deposit"
+             value={form.harvestOnDeposit ? 'YES (harvests on every deposit)' : 'NO — keeper-scheduled (default)'} />
       </div>
 
       {/* LP / staking info */}

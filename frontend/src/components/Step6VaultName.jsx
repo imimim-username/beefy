@@ -7,8 +7,6 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
   const lp = form.lpInfo;
   const t0 = lp?.token0?.symbol || 'TKN0';
   const t1 = lp?.token1?.symbol || 'TKN1';
-  const isAura = form.strategyType === 'aura';
-
   const suggestedName   = `Beefy ${t0}-${t1}`;
   const suggestedSymbol = `moo${t0}${t1}`;
 
@@ -27,7 +25,7 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
       vaultSymbol:      symbol.trim()     || suggestedSymbol,
       unirouter:        router.trim()     || undefined,
       strategist:       strategist.trim() || undefined,
-      harvestOnDeposit: isAura ? harvestOnDeposit : undefined,
+      harvestOnDeposit: harvestOnDeposit,
     }));
     onNext();
   }
@@ -107,9 +105,8 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
         />
       </Field>
 
-      {/* ── harvestOnDeposit toggle — Aura (StrategyBalancerV3) only ─────────── */}
-      {isAura && (
-        <PixelBox style={{ padding: '12px', marginBottom: '14px' }}>
+      {/* ── harvestOnDeposit toggle ───────────────────────────────────────────── */}
+      <PixelBox style={{ padding: '12px', marginBottom: '14px' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flexShrink: 0 }}>
               <input
@@ -137,7 +134,6 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
             </div>
           </div>
         </PixelBox>
-      )}
 
       <PixelBox style={{ padding: '12px', marginBottom: '16px' }}>
         <div style={{ fontSize: '7px', display: 'grid', gap: '6px' }}>
@@ -147,14 +143,12 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
             <span style={{ color: 'var(--gold)' }}>Strategist:      </span>
             {strategist.trim() || <span style={{ color: 'var(--border)' }}>deployer address</span>}
           </div>
-          {isAura && (
-            <div>
-              <span style={{ color: 'var(--gold)' }}>Harvest on deposit: </span>
-              <span style={{ color: harvestOnDeposit ? 'var(--green)' : '#aaa' }}>
-                {harvestOnDeposit ? 'YES' : 'NO'}
-              </span>
-            </div>
-          )}
+          <div>
+            <span style={{ color: 'var(--gold)' }}>Harvest on deposit: </span>
+            <span style={{ color: harvestOnDeposit ? 'var(--green)' : '#aaa' }}>
+              {harvestOnDeposit ? 'YES' : 'NO'}
+            </span>
+          </div>
         </div>
       </PixelBox>
 
