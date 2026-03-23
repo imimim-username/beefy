@@ -179,7 +179,7 @@ function PostDeployChecklist({ result, form }) {
   return (
     <PixelBox variant="cyan" style={{ padding: '16px', marginTop: '24px' }}>
       <div style={{ color: 'var(--cyan)', fontSize: '9px', marginBottom: '16px' }}>
-        ▶ NEXT STEPS — COMPLETE ALL FOUR BEFORE SUBMITTING TO BEEFY
+        ▶ NEXT STEPS — COMPLETE ALL FIVE BEFORE VAULT GOES LIVE
       </div>
 
       {/* ── Step 1: Etherscan verification ─────────────────────────────── */}
@@ -254,10 +254,31 @@ License          : MIT (3)`}</Code>
       )}
 
       {/* ── Step 2: Test deposit ────────────────────────────────────────── */}
-      <CheckStep num="2" title="MAKE A SMALL TEST DEPOSIT INTO THE VAULT">
+      <CheckStep num="2" title="TEST THE VAULT THOROUGHLY (BEFORE OWNERSHIP TRANSFER)">
         <p>
-          Beefy requires at least one real deposit to prove the vault accepts funds correctly.
-          Open the vault on the block explorer:
+          Beefy requires proper testing before you transfer ownership — after transfer, any
+          fixes require timelocked multisig transactions, which are slow and costly. Follow
+          Beefy's full testing procedure:
+        </p>
+        <a
+          href="https://docs.beefy.finance/safety/beefy-safu-practices#vault-testing-procedure"
+          target="_blank" rel="noreferrer"
+          style={{ color: 'var(--green)', display: 'block', margin: '6px 0' }}
+        >
+          → docs.beefy.finance — Vault Testing Procedure
+        </a>
+        <p style={{ marginTop: '4px', marginBottom: '4px' }}>
+          At minimum, from your deployer wallet while you still own the strategy:
+        </p>
+        <ul style={{ marginLeft: '14px', lineHeight: '2' }}>
+          <li>Deposit a small amount into the vault</li>
+          <li>Call <Inline>harvest()</Inline> on the strategy and confirm it succeeds</li>
+          <li>Call <Inline>withdraw(amount)</Inline> to confirm withdrawal works</li>
+        </ul>
+        <p style={{ marginTop: '6px' }}>
+          Also check a recently deployed vault of the same type (e.g. another Balancer V3 + Aura
+          vault) on Etherscan to see what calls the strategist made between initialization and
+          ownership transfer — there may be additional setup calls required for your platform.
         </p>
         {explorer ? (
           <a
@@ -270,14 +291,8 @@ License          : MIT (3)`}</Code>
         ) : (
           <Code>{`{blockExplorer}/address/${result.vaultAddress}#writeContract`}</Code>
         )}
-        <p>
-          Connect your wallet, approve the LP token, then call{' '}
-          <Inline>deposit(amount)</Inline> with a small amount (a few dollars worth is enough).
-        </p>
         <p style={{ color: '#f99', marginTop: '6px' }}>
-          ⚠ If the deposit reverts, stop — the strategy has a bug. Use Tenderly to trace the
-          revert and fix it before proceeding. Common cause: <Inline>beforeDeposit()</Inline>{' '}
-          missing from the strategy (required by Beefy's vault factory).
+          ⚠ If any call reverts, stop and fix before proceeding. Use Tenderly to trace reverts.
         </p>
       </CheckStep>
 
@@ -312,8 +327,12 @@ License          : MIT (3)`}</Code>
         </p>
       </CheckStep>
 
-      {/* ── Step 4: Submit PR ───────────────────────────────────────────── */}
-      <CheckStep num="4" title="SUBMIT A LISTING PR TO BEEFY-V2">
+      {/* ── Step 5: beefy-v2 listing PR (only after Step 4 API PR is merged) */}
+      <CheckStep num="5" title="SUBMIT A LISTING PR TO BEEFY-V2">
+        <p style={{ color: '#f99', marginBottom: '6px' }}>
+          ⚠ Only submit this after the beefy-api PR (Step 4) has been <strong>merged</strong>.
+          The beefy-v2 PR will be blocked by CI until the API PR is live in production.
+        </p>
         <p>
           Fork{' '}
           <a
@@ -375,11 +394,15 @@ License          : MIT (3)`}</Code>
         </p>
       </CheckStep>
 
-      {/* ── Step 5: beefy-api PR ────────────────────────────────────────── */}
-      <CheckStep num="5" title="SUBMIT A SECOND PR TO BEEFY-API">
+      {/* ── Step 4: beefy-api PR — must be MERGED before beefy-v2 PR ────── */}
+      <CheckStep num="4" title="SUBMIT BEEFY-API PR AND WAIT FOR IT TO MERGE">
         <p>
-          The beefy-v2 UI PR (Step 4) is only for the frontend. Beefy's oracle/pricing system
-          also requires a PR to{' '}
+          The beefy-v2 PR (Step 5) <strong style={{ color: 'var(--gold)' }}>cannot merge</strong>{' '}
+          until this beefy-api PR is merged first. Submit this PR, wait for Beefy team approval,
+          then proceed to Step 5.
+        </p>
+        <p style={{ marginTop: '4px' }}>
+          Fork{' '}
           <a
             href="https://github.com/beefyfinance/beefy-api"
             target="_blank" rel="noreferrer"
@@ -387,11 +410,20 @@ License          : MIT (3)`}</Code>
           >
             github.com/beefyfinance/beefy-api
           </a>
-          {' '}— the beefy-v2 PR cannot merge until this is done.
+          {' '}and add an entry to the appropriate data file (see template below).
         </p>
-        <p style={{ color: '#f99', marginTop: '4px' }}>
-          ⚠ Without the beefy-api PR, the vault will show $0 TVL and be non-functional in the
-          UI even after the beefy-v2 PR is merged.
+        <p style={{ color: '#f99', marginTop: '4px', marginBottom: '6px' }}>
+          ⚠ If your tokens are not already in Beefy's oracle system, you may also need to run
+          the <Inline>setOracle</Inline> and <Inline>setSwapInfo</Inline> scripts from the{' '}
+          <a
+            href="https://github.com/beefyfinance/beefy-contracts"
+            target="_blank" rel="noreferrer"
+            style={{ color: 'var(--green)' }}
+          >
+            beefy-contracts
+          </a>{' '}
+          repo to register the token's price oracle and swap route on-chain. Ask in the{' '}
+          <strong>#-development</strong> Discord channel — these scripts are not publicly documented.
         </p>
         {isAura && (
           <>
@@ -563,8 +595,8 @@ License          : MIT (3)`}</Code>
           </>
         )}
         <p style={{ marginTop: '6px', color: '#aaa' }}>
-          ℹ Ask in Beefy's <strong>#-development</strong> Discord channel if you need help,
-          especially for platforms where the pricing setup is non-trivial.
+          ℹ Ask in Beefy's <strong>#-development</strong> Discord channel if you need help
+          with the API entry format or the setOracle/setSwapInfo scripts.
         </p>
       </CheckStep>
     </PixelBox>
