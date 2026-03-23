@@ -139,8 +139,21 @@ async function main() {
   ];
   const booster = new ethers.Contract(boosterAddr, boosterAbi, deployer);
   const poolInfo = await booster.poolInfo(Number(auraPoolId));
-  const gaugeAddress = poolInfo[2]; // index 2 = gauge
+  const gaugeAddress = poolInfo[2]; // index 2 = gauge (Balancer gauge)
+  const crvRewards   = poolInfo[3]; // index 3 = crvRewards (Aura reward pool — used in beefy-api)
   console.log(`[aura-deploy] gauge (from booster.poolInfo): ${gaugeAddress}`);
+  console.log(`[aura-deploy] crvRewards (from booster.poolInfo): ${crvRewards}`);
+
+  // Fetch the AURA extra reward gauge (extraRewards(0) on crvRewards) — used in beefy-api entry
+  let auraRewardGauge = null;
+  try {
+    const crvRewardsAbi = ['function extraRewards(uint256 index) view returns (address)'];
+    const crvRewardsContract = new ethers.Contract(crvRewards, crvRewardsAbi, deployer);
+    auraRewardGauge = await crvRewardsContract.extraRewards(0);
+    console.log(`[aura-deploy] auraRewardGauge (crvRewards.extraRewards(0)): ${auraRewardGauge}`);
+  } catch (e) {
+    console.warn(`[aura-deploy] could not read extraRewards(0): ${e.message}`);
+  }
 
   // ── 6. Initialize strategy (StrategyBalancerV3) ───────────────────────────────
   // Addresses struct: { want, depositToken, factory, vault, swapper, strategist }
@@ -164,8 +177,13 @@ async function main() {
     rewardAddresses,
     commonAddresses
   );
-  await initTx.wait();
+  const initReceipt = await initTx.wait();
   console.log(`[aura-deploy] strategy initialized`);
+
+  // Get block timestamp for accurate createdAt in beefy-v2 vault entry
+  const deployBlock = await ethers.provider.getBlock(initReceipt.blockNumber);
+  const blockTimestamp = deployBlock ? deployBlock.timestamp : Math.floor(Date.now() / 1000);
+  console.log(`[aura-deploy] block ${initReceipt.blockNumber} timestamp: ${blockTimestamp}`);
 
   // ── 7. Set harvestOnDeposit (optional) ───────────────────────────────────────
   // Must be called while the deployer still owns the strategy (before transferOwnership).
@@ -189,6 +207,9 @@ async function main() {
     deployerAddress: deployer.address,
     dryRun: !!dryRun,
     txHash: initTx.hash,
+    blockTimestamp,          // used for createdAt in beefy-v2 vault entry
+    crvRewards,              // Aura reward pool — used as "gauge" in beefy-api entry
+    auraRewardGauge,         // crvRewards.extraRewards(0) — used as "rewardGauge" in beefy-api entry
   };
 
   console.log(`DEPLOY_RESULT=${JSON.stringify(result)}`);

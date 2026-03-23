@@ -138,9 +138,14 @@ function PostDeployChecklist({ result, form }) {
   const platformId     = PLATFORM_ID[form.strategyType]     || 'TODO-platform-id';
   const tokenProvider  = TOKEN_PROVIDER[form.strategyType]  || 'TODO-provider-id';
 
+  const createdAt = result.blockTimestamp || Math.floor(Date.now() / 1000);
+  const addLiqUrl = isAura
+    ? `https://balancer.fi/pools/${network}/v3/${(form.want || '').toLowerCase()}/add-liquidity`
+    : 'TODO: pool add-liquidity page URL';
+
   const vaultJson = JSON.stringify({
     id:                  `TODO-${network}-pool-name`,
-    name:                'TODO: e.g. "80ALCX/20WETH V3"',
+    name:                'TODO: e.g. "80ALCX-20WETH"',
     type:                'standard',
     token:               'TODO: same as name',
     tokenAddress:         form.want,
@@ -152,21 +157,22 @@ function PostDeployChecklist({ result, form }) {
     oracle:              'lps',
     oracleId:            `TODO-${network}-pool-name`,
     status:              'active',
-    createdAt:            Math.floor(Date.now() / 1000),
+    createdAt,
     platformId,
     assets:              ['TODO_TOKEN0', 'TODO_TOKEN1'],
     risks: {
+      updatedAt:        createdAt,
       complex:          false,
       curated:          false,
       notAudited:       false,
-      notBattleTested:  true,
+      notBattleTested:  false,
       notCorrelated:    true,
       notTimelocked:    false,
       notVerified:      false,
       synthAsset:       false,
     },
     strategyTypeId:      'lp',
-    addLiquidityUrl:     'TODO: pool add-liquidity page URL',
+    addLiquidityUrl:     addLiqUrl,
     network,
   }, null, 2);
 
@@ -317,9 +323,9 @@ License          : MIT (3)`}</Code>
           >
             github.com/beefyfinance/beefy-v2
           </a>{' '}
-          and add your vault entry to the <strong style={{ color: 'var(--gold)' }}>top</strong>{' '}
+          and add your vault entry to the <strong style={{ color: 'var(--gold)' }}>end</strong>{' '}
           of the array in{' '}
-          <Inline>src/config/vault/{network}.json</Inline>.
+          <Inline>src/config/vault/{network}.json</Inline> (file is ordered oldest → newest).
         </p>
         <p style={{ marginTop: '6px', marginBottom: '4px' }}>
           The template below has several fields pre-filled. Replace every{' '}
@@ -331,12 +337,13 @@ License          : MIT (3)`}</Code>
         </p>
         <ul style={{ marginLeft: '14px', lineHeight: '2' }}>
           <li>
-            <Inline>id</Inline> / <Inline>oracleId</Inline> — lowercase kebab-case, e.g.{' '}
-            <Inline>balancerv3-ethereum-80alcx-20weth</Inline>
+            <Inline>id</Inline> / <Inline>oracleId</Inline> — lowercase kebab-case using token
+            symbols only (no weights), e.g.{' '}
+            <Inline>balancerv3-{network}-alcx-weth</Inline>
           </li>
           <li>
-            <Inline>name</Inline> / <Inline>token</Inline> — human-readable pool name, e.g.{' '}
-            <Inline>80ALCX/20WETH V3</Inline>
+            <Inline>name</Inline> / <Inline>token</Inline> — pool display name matching the DEX UI, e.g.{' '}
+            <Inline>80ALCX-20WETH</Inline>
           </li>
           <li>
             <Inline>assets</Inline> — symbol array, e.g. <Inline>["ALCX", "WETH"]</Inline>
@@ -380,21 +387,184 @@ License          : MIT (3)`}</Code>
           >
             github.com/beefyfinance/beefy-api
           </a>
-          {' '}before the vault can go live in production.
+          {' '}— the beefy-v2 PR cannot merge until this is done.
         </p>
-        <p style={{ marginTop: '6px' }}>
-          The beefy-api PR adds oracle pricing config so Beefy knows how to value the LP token.
-          Look at the most recently merged Balancer vault entry in{' '}
-          <Inline>packages/address-book/src/address-book/{network}/</Inline>{' '}
-          and model your entry on it.
-        </p>
-        <p style={{ marginTop: '6px', color: '#f99' }}>
+        <p style={{ color: '#f99', marginTop: '4px' }}>
           ⚠ Without the beefy-api PR, the vault will show $0 TVL and be non-functional in the
           UI even after the beefy-v2 PR is merged.
         </p>
+        {isAura && (
+          <>
+            <p style={{ marginTop: '8px', marginBottom: '4px' }}>
+              For Balancer V3 + Aura vaults on {network}, append this entry to{' '}
+              <Inline>src/data/{network}/balancerV3pools.json</Inline>:
+            </p>
+            <Code>{JSON.stringify({
+              name:     `TODO-${network}-pool-name`,
+              address:  form.want,
+              gauge:    result.crvRewards    || 'TODO-crvRewards-address',
+              decimals: '1e18',
+              rewards: [{
+                rewardGauge: result.auraRewardGauge || 'TODO-auraRewardGauge-address',
+                oracleId:    'AURA',
+                decimals:    '1e18',
+              }],
+              tokens: [
+                { address: 'TODO-token0-address', oracleId: 'TODO-TOKEN0-SYMBOL', decimals: '1e18' },
+                { address: 'TODO-token1-address', oracleId: 'TODO-TOKEN1-SYMBOL', decimals: '1e18' },
+              ],
+            }, null, 2)}</Code>
+            <ul style={{ marginLeft: '14px', lineHeight: '2', marginTop: '4px' }}>
+              <li>
+                <Inline>name</Inline> — must exactly match the <Inline>oracleId</Inline> in the beefy-v2 entry
+              </li>
+              <li>
+                <Inline>gauge</Inline> — the Aura crvRewards (reward pool) address{result.crvRewards ? ' — pre-filled from deploy ✓' : ' — look up: booster.poolInfo(pid)[3]'}
+              </li>
+              <li>
+                <Inline>rewards[].rewardGauge</Inline> — the AURA stash wrapper{result.auraRewardGauge ? ' — pre-filled from deploy ✓' : ' — look up: crvRewards.extraRewards(0)'}
+              </li>
+              <li>
+                <Inline>tokens[]</Inline> — each pool token: its checksummed address and its beefy oracleId symbol
+              </li>
+            </ul>
+          </>
+        )}
+        {/* ── Convex ── */}
+        {form.strategyType === 'convex' && (
+          <>
+            <p style={{ marginTop: '8px', marginBottom: '4px' }}>
+              Append this entry to{' '}
+              <Inline>src/data/{network}/convexPools.json</Inline>:
+            </p>
+            <Code>{JSON.stringify({
+              name:       `TODO-convex-pool-name`,
+              pool:       form.curvePool || 'TODO-curve-pool-address',
+              token:      form.want,
+              rewardPool: 'TODO-convex-base-reward-pool-address',
+              tokens: [
+                { oracle: 'tokens', oracleId: 'TODO-TOKEN0', decimals: '1e18' },
+                { oracle: 'tokens', oracleId: 'TODO-TOKEN1', decimals: '1e18' },
+              ],
+            }, null, 2)}</Code>
+            <ul style={{ marginLeft: '14px', lineHeight: '2', marginTop: '4px' }}>
+              <li><Inline>pool</Inline> — the Curve pool contract (pre-filled from Step 3)</li>
+              <li><Inline>token</Inline> — the LP token address (pre-filled from Step 2 ✓)</li>
+              <li><Inline>rewardPool</Inline> — Convex BaseRewardPool: look up <Inline>booster.poolInfo(pid).crvRewards</Inline></li>
+              <li><Inline>tokens[].oracleId</Inline> — must match a symbol in Beefy's price oracle</li>
+            </ul>
+          </>
+        )}
+
+        {/* ── StakeDAO ── */}
+        {form.strategyType === 'stakedao' && (
+          <>
+            <p style={{ marginTop: '8px', marginBottom: '4px' }}>
+              Append this entry to{' '}
+              <Inline>src/data/{network}/convexPools.json</Inline>{' '}
+              (StakeDAO shares the file with Convex — distinguished by <Inline>stakeDao: true</Inline>):
+            </p>
+            <Code>{JSON.stringify({
+              name:     `TODO-curve-pool-name`,
+              pool:     form.curvePool || 'TODO-curve-pool-address',
+              gauge:    form.staking   || 'TODO-curve-gauge-address',
+              stakeDao: true,
+              tokens: [
+                { oracle: 'tokens', oracleId: 'TODO-TOKEN0', decimals: '1e18' },
+                { oracle: 'tokens', oracleId: 'TODO-TOKEN1', decimals: '1e18' },
+              ],
+            }, null, 2)}</Code>
+            <ul style={{ marginLeft: '14px', lineHeight: '2', marginTop: '4px' }}>
+              <li><Inline>pool</Inline> — the Curve pool contract (pre-filled from Step 3)</li>
+              <li><Inline>gauge</Inline> — the Curve gauge address (pre-filled from Step 3 ✓)</li>
+              <li><Inline>tokens[].oracleId</Inline> — must match a symbol in Beefy's price oracle</li>
+            </ul>
+          </>
+        )}
+
+        {/* ── CurveGauge ── */}
+        {form.strategyType === 'curvegauge' && (
+          <>
+            <p style={{ marginTop: '8px', marginBottom: '4px' }}>
+              Append this entry to{' '}
+              <Inline>src/data/{network}/curvePools.json</Inline>:
+            </p>
+            <Code>{JSON.stringify({
+              name:  `TODO-curve-pool-name`,
+              pool:  form.curvePool || 'TODO-curve-pool-address',
+              gauge: form.staking   || 'TODO-curve-gauge-address',
+              tokens: [
+                { oracle: 'tokens', oracleId: 'TODO-TOKEN0', decimals: '1e18' },
+                { oracle: 'tokens', oracleId: 'TODO-TOKEN1', decimals: '1e18' },
+              ],
+            }, null, 2)}</Code>
+            <ul style={{ marginLeft: '14px', lineHeight: '2', marginTop: '4px' }}>
+              <li><Inline>pool</Inline> — the Curve pool contract (pre-filled from Step 3)</li>
+              <li><Inline>gauge</Inline> — the Curve native gauge (pre-filled from Step 3 ✓)</li>
+              <li><Inline>tokens[].oracleId</Inline> — must match a symbol in Beefy's price oracle</li>
+              <li>Add a <Inline>rewards[]</Inline> array if the gauge distributes extra tokens beyond CRV</li>
+            </ul>
+          </>
+        )}
+
+        {/* ── Chef ── */}
+        {form.strategyType === 'chef' && (
+          <>
+            <p style={{ marginTop: '8px', marginBottom: '4px' }}>
+              Append this entry to the platform's LP pool file in{' '}
+              <Inline>src/data/{network}/{'<platform>'}LpPools.json</Inline>
+              {' '}(filename matches the DEX/farm name, e.g. <Inline>sushiLpPools.json</Inline>):
+            </p>
+            <Code>{JSON.stringify({
+              name:     `TODO-platform-token0-token1`,
+              address:  form.want,
+              decimals: '1e18',
+              poolId:   form.poolId != null ? Number(form.poolId) : 'TODO-pool-id',
+              chainId:  form.chainId,
+              beefyFee: 0.095,
+              lp0: { address: 'TODO-token0-address', oracle: 'tokens', oracleId: 'TODO-TOKEN0', decimals: '1e18' },
+              lp1: { address: 'TODO-token1-address', oracle: 'tokens', oracleId: 'TODO-TOKEN1', decimals: '1e18' },
+            }, null, 2)}</Code>
+            <ul style={{ marginLeft: '14px', lineHeight: '2', marginTop: '4px' }}>
+              <li><Inline>address</Inline> — LP pair address (pre-filled ✓)</li>
+              <li><Inline>poolId</Inline> — MasterChef pool index (pre-filled ✓)</li>
+              <li><Inline>lp0/lp1.address</Inline> — call <Inline>token0()</Inline> / <Inline>token1()</Inline> on the LP pair</li>
+              <li><Inline>lp0/lp1.oracleId</Inline> — must match a symbol in Beefy's price oracle</li>
+              <li><Inline>lp0/lp1.decimals</Inline> — check each token contract</li>
+            </ul>
+          </>
+        )}
+
+        {/* ── Solidly Gauge ── */}
+        {form.strategyType === 'gauge' && (
+          <>
+            <p style={{ marginTop: '8px', marginBottom: '4px' }}>
+              Append this entry to the platform's LP pool file in{' '}
+              <Inline>src/data/{network}/{'<platform>'}LpPools.json</Inline>
+              {' '}(e.g. <Inline>velodromeLpPools.json</Inline>, <Inline>aerodromeStableLpPools.json</Inline>):
+            </p>
+            <Code>{JSON.stringify({
+              name:     `TODO-platform-token0-token1`,
+              address:  form.want,
+              gauge:    form.staking || 'TODO-gauge-address',
+              decimals: '1e18',
+              chainId:  form.chainId,
+              beefyFee: 0.095,
+              lp0: { address: 'TODO-token0-address', oracle: 'tokens', oracleId: 'TODO-TOKEN0', decimals: '1e18' },
+              lp1: { address: 'TODO-token1-address', oracle: 'tokens', oracleId: 'TODO-TOKEN1', decimals: '1e18' },
+            }, null, 2)}</Code>
+            <ul style={{ marginLeft: '14px', lineHeight: '2', marginTop: '4px' }}>
+              <li><Inline>address</Inline> — LP pair address (pre-filled ✓)</li>
+              <li><Inline>gauge</Inline> — gauge contract (pre-filled from Step 3 ✓)</li>
+              <li><Inline>lp0/lp1.address</Inline> — call <Inline>token0()</Inline> / <Inline>token1()</Inline> on the LP pair</li>
+              <li><Inline>lp0/lp1.oracleId</Inline> — must match a symbol in Beefy's price oracle</li>
+              <li><Inline>lp0/lp1.decimals</Inline> — check each token contract</li>
+            </ul>
+          </>
+        )}
         <p style={{ marginTop: '6px', color: '#aaa' }}>
-          ℹ The Beefy team may help with this PR if you ask nicely in their Discord — especially
-          for Balancer V3 pools where the pricing setup is non-trivial.
+          ℹ Ask in Beefy's <strong>#-development</strong> Discord channel if you need help,
+          especially for platforms where the pricing setup is non-trivial.
         </p>
       </CheckStep>
     </PixelBox>

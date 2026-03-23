@@ -113,8 +113,11 @@ async function main() {
     outputToLp1Route,
     commonAddresses
   );
-  await txStrat.wait();
+  const stratReceipt = await txStrat.wait();
   console.log(`[chef-deploy] strategy initialized`);
+  const deployBlock = await ethers.provider.getBlock(stratReceipt.blockNumber);
+  const blockTimestamp = deployBlock ? deployBlock.timestamp : Math.floor(Date.now() / 1000);
+  console.log(`[chef-deploy] block ${stratReceipt.blockNumber} timestamp: ${blockTimestamp}`);
   // ── Optional: harvestOnDeposit ───────────────────────────────────────────────
   if (harvestOnDeposit) {
     try {
@@ -153,6 +156,7 @@ async function main() {
     deployerAddress: deployer.address,
     dryRun: !!dryRun,
     txHash: txStrat.hash,
+    blockTimestamp,
   };
 
   // This line is parsed by deployer.js
