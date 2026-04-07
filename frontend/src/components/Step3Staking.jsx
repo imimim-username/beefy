@@ -346,9 +346,9 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
       {lpMismatch && (
         <PixelBox variant="red" style={{ padding: '10px', marginBottom: '14px' }}>
           <div style={{ fontSize: '7px', color: 'var(--red)' }}>
-            ⚠ Your LP token appears to be a <strong>{actualLpType || 'V2/Solidly'}</strong> pool,
+            ⚠ Your LP token appears to be a <strong>{actualLpType}</strong> pool,
             but the <strong>{stratType.toUpperCase()}</strong> strategy expects a{' '}
-            <strong>{expectedLpType || 'V2/Solidly'}</strong> pool.
+            <strong>{compatibleTypes.join(' or ')}</strong> pool.
           </div>
         </PixelBox>
       )}
