@@ -73,22 +73,18 @@ async function main() {
   }
 
   // ── 2. Clone strategy via StrategyFactory ─────────────────────────────────
+  // Use staticCall to get the proxy address before sending the tx — avoids
+  // depending on parsing the ProxyCreated event (whose signature differs from
+  // the VaultFactory event: StrategyFactory emits (string name, address proxy)).
   const strategyFactoryAbi = [
     'function createStrategy(string calldata _strategyName) external returns (address)',
-    'event ProxyCreated(address proxy)',
   ];
   const strategyFactory = new ethers.Contract(beefyAddresses.strategyFactory, strategyFactoryAbi, deployer);
+  const stratAddress = await strategyFactory.createStrategy.staticCall('Velodrome');
+  if (!stratAddress || stratAddress === ZERO) throw new Error('staticCall returned zero address for createStrategy');
+  console.log(`[gauge-deploy] strategy address (pre-computed): ${stratAddress}`);
   const stratTx = await strategyFactory.createStrategy('Velodrome');
-  const stratReceipt0 = await stratTx.wait();
-  let stratAddress;
-  const sIface = new ethers.Interface(strategyFactoryAbi);
-  for (const log of stratReceipt0.logs) {
-    try {
-      const parsed = sIface.parseLog(log);
-      if (parsed.name === 'ProxyCreated') { stratAddress = parsed.args.proxy; break; }
-    } catch {}
-  }
-  if (!stratAddress) throw new Error('ProxyCreated event not found in StrategyFactory tx');
+  await stratTx.wait();
   console.log(`[gauge-deploy] strategy cloned (Velodrome): ${stratAddress}`);
 
   // ── 3. Initialize vault ───────────────────────────────────────────────────
