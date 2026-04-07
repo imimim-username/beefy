@@ -9,6 +9,10 @@ export const CHAINS_INFO = {
   1: {
     id: 1, name: 'Ethereum', nativeSymbol: 'ETH',
     nativeToken: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+    // nativeToken IS WETH on ETH chains — no separate WETH entry needed
+    commonTokens: [
+      { symbol: 'USDC', address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' },
+    ],
     blockExplorer: 'https://etherscan.io',
     beefyAddresses: {
       vaultFactory:      '0xC551dDCE8e5E657503Cd67A39713c06F2c0d2e97',
@@ -33,6 +37,10 @@ export const CHAINS_INFO = {
   56: {
     id: 56, name: 'BNB Chain', nativeSymbol: 'BNB',
     nativeToken: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
+    commonTokens: [
+      { symbol: 'WETH', address: '0x2170Ed0880ac9A755fd29B2688956BD959F933F8' },
+      { symbol: 'USDC', address: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d' },
+    ],
     blockExplorer: 'https://bscscan.com',
     beefyAddresses: {
       vaultFactory:      '0xe596eC590DE52C09c8D1C7A1294B32F957A7c94e',
@@ -50,6 +58,10 @@ export const CHAINS_INFO = {
   137: {
     id: 137, name: 'Polygon', nativeSymbol: 'MATIC',
     nativeToken: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
+    commonTokens: [
+      { symbol: 'WETH',  address: '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619' },
+      { symbol: 'USDC',  address: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359' },
+    ],
     blockExplorer: 'https://polygonscan.com',
     beefyAddresses: {
       vaultFactory:      '0x5a7Bdd60d6004aaED4C06cA16434f4b657d76C3D',
@@ -68,6 +80,9 @@ export const CHAINS_INFO = {
   42161: {
     id: 42161, name: 'Arbitrum', nativeSymbol: 'ETH',
     nativeToken: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
+    commonTokens: [
+      { symbol: 'USDC', address: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' },
+    ],
     blockExplorer: 'https://arbiscan.io',
     beefyAddresses: {
       vaultFactory:      '0x8396f3d25d07531a80770Ce3DEA025932C4953f7',
@@ -87,6 +102,9 @@ export const CHAINS_INFO = {
   10: {
     id: 10, name: 'Optimism', nativeSymbol: 'ETH',
     nativeToken: '0x4200000000000000000000000000000000000006',
+    commonTokens: [
+      { symbol: 'USDC', address: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85' },
+    ],
     blockExplorer: 'https://optimistic.etherscan.io',
     beefyAddresses: {
       vaultFactory:      '0xA6D3769faC465FC0415e7E9F16dcdC96B83C240B',
@@ -105,6 +123,9 @@ export const CHAINS_INFO = {
   8453: {
     id: 8453, name: 'Base', nativeSymbol: 'ETH',
     nativeToken: '0x4200000000000000000000000000000000000006',
+    commonTokens: [
+      { symbol: 'USDC', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' },
+    ],
     blockExplorer: 'https://basescan.org',
     beefyAddresses: {
       vaultFactory:      '0xBC4a342B0c057501E081484A2d24e576E854F823',
@@ -123,6 +144,10 @@ export const CHAINS_INFO = {
   43114: {
     id: 43114, name: 'Avalanche', nativeSymbol: 'AVAX',
     nativeToken: '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',
+    commonTokens: [
+      { symbol: 'WETH.e', address: '0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB' },
+      { symbol: 'USDC',   address: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E' },
+    ],
     blockExplorer: 'https://snowtrace.io',
     beefyAddresses: {
       vaultFactory:      '0xee78529E158E82AC54c89608A9664F5597050526',
@@ -139,6 +164,9 @@ export const CHAINS_INFO = {
   250: {
     id: 250, name: 'Fantom', nativeSymbol: 'FTM',
     nativeToken: '0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83',
+    commonTokens: [
+      { symbol: 'USDC', address: '0x04068DA6C83AFCFA0e13ba15A6696662335D5B75' },
+    ],
     blockExplorer: 'https://ftmscan.com',
     beefyAddresses: {
       vaultFactory:      '0x740CE0674aF6eEC113A435fAa53B297536A3e89B',

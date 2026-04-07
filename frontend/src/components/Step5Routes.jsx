@@ -128,10 +128,19 @@ function FactoryDepositTokenStep({ form, setForm }) {
   if (form.lpInfo?.token1) poolTokens.push(form.lpInfo.token1);
   if (form.lpInfo?.token2) poolTokens.push(form.lpInfo.token2);
 
+  // Common tokens for this chain (WETH / USDC) that aren't already a pool token
+  const poolAddrs = new Set(poolTokens.map(t => t.address.toLowerCase()));
+  const commonTokens = (chainInfo.commonTokens || []).filter(
+    t => !poolAddrs.has(t.address.toLowerCase())
+  );
+
+  // All selectable tokens = pool tokens first, then common extras
+  const allTokens = [...poolTokens, ...commonTokens];
+
   // Default: native token if it's one of the pool tokens; otherwise first token
-  const defaultToken = poolTokens.find(t =>
+  const defaultToken = allTokens.find(t =>
     t.address.toLowerCase() === nativeToken.toLowerCase()
-  ) || poolTokens[0];
+  ) || allTokens[0];
 
   const [selected, setSelected] = useState(
     form.depositToken || defaultToken?.address || ''
@@ -185,8 +194,14 @@ function FactoryDepositTokenStep({ form, setForm }) {
         </div>
       </PixelBox>
 
-      <Field label="DEPOSIT TOKEN" hint="Which pool token to use when adding liquidity on harvest">
+      <Field label="DEPOSIT TOKEN" hint="Which token BeefySwapper swaps into when adding liquidity on harvest">
         <div style={{ display: 'grid', gap: '6px' }}>
+          {/* Pool tokens (from the LP itself) */}
+          {poolTokens.length > 0 && (
+            <div style={{ fontSize: '6px', color: '#666', marginBottom: '2px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              Pool tokens
+            </div>
+          )}
           {poolTokens.map(token => (
             <label
               key={token.address}
@@ -218,6 +233,44 @@ function FactoryDepositTokenStep({ form, setForm }) {
               </span>
             </label>
           ))}
+
+          {/* Common liquid tokens for this chain (WETH / USDC) not already in the pool */}
+          {commonTokens.length > 0 && (
+            <>
+              <div style={{ fontSize: '6px', color: '#666', marginTop: '6px', marginBottom: '2px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                Other liquid options
+              </div>
+              {commonTokens.map(token => (
+                <label
+                  key={token.address}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    cursor: 'pointer', fontSize: '7px', color: 'var(--white)',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="depositToken"
+                    value={token.address}
+                    checked={selected === token.address}
+                    onChange={() => handleSelect(token.address)}
+                  />
+                  <span>
+                    <span style={{ color: 'var(--cyan)' }}>{token.symbol}</span>
+                    {' '}
+                    <span style={{ color: '#888' }}>{token.address}</span>
+                    <span style={{
+                      marginLeft: '6px', color: 'var(--gold)',
+                      border: '1px solid var(--gold)', padding: '0 3px',
+                      fontSize: '6px',
+                    }}>
+                      WELL-SUPPORTED
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </>
+          )}
 
           {/* Fallback: custom address for pools not fully resolved */}
           <label
@@ -266,7 +319,7 @@ function FactoryDepositTokenStep({ form, setForm }) {
 
       {/* BeefySwapper verification notice */}
       {selected && selected !== '__custom__' && (() => {
-        const selToken = [...poolTokens, ...(useCustom ? [] : [])].find(
+        const selToken = allTokens.find(
           t => t.address.toLowerCase() === selected.toLowerCase()
         );
         const sym = selToken?.symbol?.toLowerCase() || '';
