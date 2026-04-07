@@ -6,7 +6,7 @@ const cors    = require('cors');
 const morgan  = require('morgan');
 
 const { CHAINS }      = require('./chains.js');
-const { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, getCurveCoin, suggestRoutes, resolveToken } = require('./resolver.js');
+const { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, getCurveCoin, suggestRoutes, resolveToken, findPoolByLp, detectRewardTokens } = require('./resolver.js');
 const { dryRun, execute } = require('./deployer.js');
 const registry = require('./tokenRegistry.js');
 
@@ -140,6 +140,38 @@ app.get('/api/curve-coin', async (req, res) => {
   try {
     const info = await getCurveCoin(Number(chainId), curvePool, Number(coinIndex));
     res.json({ ok: true, ...info });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Find pool ID by LP token (Convex / Aura booster scan) ────────────────────
+// GET /api/find-pool-id?chainId=1&booster=0x...&lp=0x...
+// Scans booster.poolInfo(i) newest-first until it finds a matching lptoken.
+app.get('/api/find-pool-id', async (req, res) => {
+  const { chainId, booster, lp } = req.query;
+  if (!chainId || !booster || !lp) {
+    return res.status(400).json({ ok: false, error: 'chainId, booster, and lp required' });
+  }
+  try {
+    const result = await findPoolByLp(Number(chainId), booster, lp);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Auto-detect reward tokens from staking contract ───────────────────────────
+// GET /api/reward-tokens?chainId=1&stratType=gauge&staking=0x...&rewardPool=0x...
+// rewardPool is required for aura/convex (= booster.poolInfo(pid).crvRewards)
+app.get('/api/reward-tokens', async (req, res) => {
+  const { chainId, stratType, staking, rewardPool } = req.query;
+  if (!chainId || !stratType || !staking) {
+    return res.status(400).json({ ok: false, error: 'chainId, stratType, and staking required' });
+  }
+  try {
+    const tokens = await detectRewardTokens(Number(chainId), stratType, staking, rewardPool || null);
+    res.json({ ok: true, tokens });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }

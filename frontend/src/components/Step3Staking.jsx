@@ -23,11 +23,14 @@ const LP_TYPE_MATCH = {
   stakedao:   'curve',
 };
 
-// Strategies that use Curve pool fields (curve pool + coin index + nCoins)
+// Strategies that use Curve pool fields (deposit token is a Curve coin)
 const USES_CURVE_POOL = new Set(['convex', 'curvegauge', 'stakedao']);
 
-// Strategies that need a pool ID
+// Strategies that need a pool ID from the booster
 const NEEDS_POOL_ID = new Set(['chef', 'aura', 'convex']);
+
+// Strategies where pool ID can be auto-detected by scanning the booster
+const AUTO_POOL_ID = new Set(['aura', 'convex']);
 
 export function Step3Staking({ form, setForm, onNext, onBack }) {
   const chain = CHAINS_INFO[form.chainId];
@@ -37,6 +40,11 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
   const [stakingAddr, setStakingAddr] = useState(form.staking || '');
   const [poolId,      setPoolId]      = useState(form.poolId !== undefined ? String(form.poolId) : '');
   const [pendingFn,   setPendingFn]   = useState(form.pendingRewardsFunctionName || '');
+
+  // Pool ID auto-detection state
+  const [pidSearching,  setPidSearching]  = useState(false);
+  const [pidAutoMsg,    setPidAutoMsg]    = useState('');
+  const [pidAutoFound,  setPidAutoFound]  = useState(false);
 
   // Curve-pool fields (shared by convex / curvegauge / stakedao)
   const [curvePool,  setCurvePool]  = useState(form.curvePool  || '');
@@ -63,6 +71,53 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stratType, form.chainId]);
+
+  /* ── nCoins auto-fill from LP info ───────────────────────────────────────────
+   * When the LP token was identified as a Curve pool with a known coin count,
+   * pre-fill nCoins so the user doesn't have to select it manually.
+   */
+  useEffect(() => {
+    if (!USES_CURVE_POOL.has(stratType)) return;
+    if (form.lpInfo?.nCoins && !form.nCoins) {
+      setNCoins(String(form.lpInfo.nCoins));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stratType]);
+
+  /* ── pool ID auto-detection (Aura / Convex only) ─────────────────────────────
+   * Once the booster address is set and we have the LP token address (form.want),
+   * automatically scan booster.poolInfo() to find the matching pool ID.
+   * Only fires when poolId is empty (doesn't overwrite a manually entered value).
+   */
+  useEffect(() => {
+    if (!AUTO_POOL_ID.has(stratType)) return;
+    if (!debouncedStaking || debouncedStaking.length < 42) return;
+    if (!form.want) return;
+    if (poolId.trim() !== '') return; // don't overwrite manual entry
+
+    setPidSearching(true);
+    setPidAutoMsg('Scanning booster pools for your LP…');
+    setPidAutoFound(false);
+
+    api.findPoolId(form.chainId, debouncedStaking, form.want)
+      .then(res => {
+        if (res.ok && res.found) {
+          setPoolId(String(res.pid));
+          setPidAutoMsg(`Auto-detected: pool #${res.pid} (of ${res.poolLength})`);
+          setPidAutoFound(true);
+        } else if (res.ok && !res.found) {
+          setPidAutoMsg(`Not found in ${res.poolLength} pools — enter manually`);
+        } else {
+          setPidAutoMsg('Could not scan pools — enter manually');
+        }
+        setPidSearching(false);
+      })
+      .catch(() => {
+        setPidAutoMsg('Pool ID scan failed — enter manually');
+        setPidSearching(false);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedStaking, stratType, form.want, form.chainId]);
 
   /* ── main staking validation ──────────────────────────────────────────────── */
   useEffect(() => {
@@ -106,6 +161,12 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
       }
 
       setStatus('ok');
+
+      // Auto-fill Curve pool address from gauge.pool() when the validator returns it
+      if (USES_CURVE_POOL.has(stratType) && res.pool && !curvePool) {
+        setCurvePool(res.pool);
+      }
+
       setForm(f => ({
         ...f,
         strategyType: stratType,
@@ -113,6 +174,8 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         poolId:       NEEDS_POOL_ID.has(stratType) ? Number(poolId) : undefined,
         pendingRewardsFunctionName: stratType === 'chef' ? (pendingFn.trim() || undefined) : undefined,
         isStable:     stratType === 'gauge' ? form.lpInfo?.isStable : undefined,
+        // Save rewardPool (crvRewards) so Step 4 can auto-detect reward tokens
+        rewardPool:   (stratType === 'aura' || stratType === 'convex') ? res.rewardPool : undefined,
       }));
     }).catch(e => { setStatus('error'); setMsg(e.message); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -144,6 +207,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
     setStakingAddr(''); setPoolId(''); setPendingFn('');
     setCurvePool(''); setCoinIndex(''); setNCoins('2');
     setConvexCoin(null); setCoinStatus(''); setCoinMsg('');
+    setPidSearching(false); setPidAutoMsg(''); setPidAutoFound(false);
   }
 
   /* ── LP type mismatch warning ─────────────────────────────────────────────── */
@@ -182,11 +246,8 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
       coinIndex:    USES_CURVE_POOL.has(stratType) ? Number(coinIndex) : undefined,
       nCoins:       USES_CURVE_POOL.has(stratType) ? Number(nCoins)    : undefined,
       convexCoin:   USES_CURVE_POOL.has(stratType) ? convexCoin   : undefined,
-      // minterEnabled: curvegauge = true (needs Minter), stakedao = false (claim_rewards handles CRV)
       minterEnabled: stratType === 'curvegauge' ? true : stratType === 'stakedao' ? false : undefined,
-      // CRV Minter address: from chain config (only used for curvegauge)
       minter: stratType === 'curvegauge' ? (chain?.beefyAddresses?.crvMinter || null) : undefined,
-      // Balancer v3 Router: auto-pass from chain config when pool is v3
       balancerV3Router: stratType === 'aura' && form.lpInfo?.balancerVersion === 3
         ? (chain?.beefyAddresses?.balancerV3Router || null) : undefined,
     }));
@@ -264,7 +325,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </PixelBox>
       )}
 
-      {/* Balancer v3 note (now supported) */}
+      {/* Balancer v3 note */}
       {stratType === 'aura' && form.lpInfo?.balancerVersion === 3 && (
         <PixelBox style={{ padding: '10px', marginBottom: '14px' }}>
           <div style={{ fontSize: '7px', color: 'var(--cyan)' }}>
@@ -299,18 +360,44 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </div>
       </Field>
 
-      {/* ── Pool ID (chef / aura / convex only) ─────────────────────────────── */}
+      {/* ── Pool ID (chef / aura / convex) ──────────────────────────────────── */}
       {NEEDS_POOL_ID.has(stratType) && (
-        <Field label={poolIdLabel}>
-          <input
-            className="pixel-input"
-            type="number"
-            min="0"
-            placeholder="0"
-            value={poolId}
-            onChange={e => { setPoolId(e.target.value); setStatus(''); setMsg(''); }}
-            style={{ width: '120px' }}
-          />
+        <Field
+          label={poolIdLabel}
+          hint={
+            // For aura/convex show the auto-detection status; for chef just show empty hint
+            AUTO_POOL_ID.has(stratType)
+              ? pidAutoMsg || (form.want ? 'Will auto-scan booster once address is entered' : 'Enter LP token in Step 2 first to enable auto-scan')
+              : ''
+          }
+          hintType={
+            AUTO_POOL_ID.has(stratType)
+              ? pidSearching ? 'loading' : pidAutoFound ? 'ok' : pidAutoMsg ? '' : ''
+              : ''
+          }
+        >
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              className="pixel-input"
+              type="number"
+              min="0"
+              placeholder="0"
+              value={poolId}
+              onChange={e => {
+                setPoolId(e.target.value);
+                setStatus(''); setMsg('');
+                // Clear auto-detection state when user types manually
+                if (pidAutoFound) { setPidAutoFound(false); setPidAutoMsg(''); }
+              }}
+              style={{ width: '120px' }}
+            />
+            {pidSearching && <Spinner />}
+            {!pidSearching && pidAutoFound && (
+              <span style={{ fontSize: '6px', color: 'var(--green)', border: '1px solid var(--green)', padding: '1px 4px' }}>
+                AUTO
+              </span>
+            )}
+          </div>
         </Field>
       )}
 
@@ -342,12 +429,15 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </PixelBox>
       )}
 
-      {/* ── Curve pool fields (convex / curvegauge / stakedao — shown after validation) ─ */}
+      {/* ── Curve pool fields (shown after validation succeeds) ──────────────── */}
       {USES_CURVE_POOL.has(stratType) && status === 'ok' && (
         <>
           <Field
             label="Curve Pool Contract Address"
-            hint="The Curve pool contract that handles add_liquidity (may differ from LP token address)"
+            hint={curvePool
+              ? "Auto-filled from gauge's pool() — override if incorrect"
+              : 'The Curve pool contract that handles add_liquidity (may differ from LP token address)'}
+            hintType={curvePool ? 'ok' : ''}
           >
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
               <input
@@ -377,7 +467,11 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
             />
           </Field>
 
-          <Field label="Number of Coins in Pool">
+          <Field
+            label="Number of Coins in Pool"
+            hint={form.lpInfo?.nCoins ? `Auto-detected ${form.lpInfo.nCoins} coins from LP token` : ''}
+            hintType={form.lpInfo?.nCoins ? 'ok' : ''}
+          >
             <div style={{ display: 'flex', gap: '10px' }}>
               {['2', '3'].map(n => (
                 <button

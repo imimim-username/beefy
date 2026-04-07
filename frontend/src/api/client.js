@@ -19,6 +19,9 @@ export const api = {
   validateCurveGauge: (chainId, gauge)        => req('GET',  `/validate-curvegauge?chainId=${chainId}&gauge=${gauge}`),
   validateStakeDao:   (chainId, gauge)        => req('GET',  `/validate-stakedao?chainId=${chainId}&gauge=${gauge}`),
   curveCoin:          (chainId, pool, idx)    => req('GET',  `/curve-coin?chainId=${chainId}&curvePool=${pool}&coinIndex=${idx}`),
+  findPoolId:         (chainId, booster, lp)  => req('GET',  `/find-pool-id?chainId=${chainId}&booster=${booster}&lp=${lp}`),
+  rewardTokens:       (chainId, stratType, staking, rewardPool) =>
+    req('GET', `/reward-tokens?chainId=${chainId}&stratType=${stratType}&staking=${staking}${rewardPool ? `&rewardPool=${rewardPool}` : ''}`),
   suggestRoutes:  (body)              => req('POST', '/suggest-routes', body),
   resolveToken:   (chainId, address)  => req('GET',  `/resolve-token?chainId=${chainId}&address=${address}`),
   getTokens:      (chainId)           => req('GET',  `/tokens/${chainId}`),

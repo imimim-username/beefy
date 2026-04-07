@@ -76,6 +76,16 @@ const BOOSTER_ABI = [
   'function poolInfo(uint256 pid) view returns (address lptoken, address token, address gauge, address crvRewards, address stash, bool shutdown)',
 ];
 
+// Convex/Aura crvRewards pool — main reward token + extra reward pools
+const REWARD_POOL_ABI = [
+  'function rewardToken() view returns (address)',
+  'function extraRewardsLength() view returns (uint256)',
+  'function extraRewards(uint256 i) view returns (address)',
+];
+const EXTRA_REWARD_ABI = [
+  'function rewardToken() view returns (address)',
+];
+
 function getProvider(chainId) {
   const chain = CHAINS[chainId];
   if (!chain) throw new Error(`Unknown chainId: ${chainId}`);
@@ -341,7 +351,9 @@ async function validateConvex(chainId, boosterAddress, pid) {
 
 /**
  * Validate a Curve LiquidityGauge or StakeDAO gauge by reading its lp_token().
- * Returns { valid, stakingToken? }
+ * Also tries to read pool() — newer Curve gauges expose this directly,
+ * which saves the user from having to look up the Curve pool address manually.
+ * Returns { valid, stakingToken?, pool? }
  *
  * Works for both Curve native gauges and StakeDAO gauges — both expose lp_token().
  */
@@ -350,6 +362,7 @@ async function validateCurveGauge(chainId, gaugeAddress) {
   const abi = [
     'function lp_token() view returns (address)',
     'function staking_token() view returns (address)', // StakeDAO alternate name
+    'function pool() view returns (address)',          // newer Curve gauges
   ];
   const gauge = new ethers.Contract(ethers.getAddress(gaugeAddress), abi, provider);
   try {
@@ -357,7 +370,11 @@ async function validateCurveGauge(chainId, gaugeAddress) {
     for (const method of ['lp_token', 'staking_token']) {
       try { stakingToken = await gauge[method](); break; } catch (_e) { /* try next */ }
     }
-    return { valid: true, stakingToken };
+    // Try reading pool() — present on LiquidityGaugeV5+ and some StakeDAO gauges
+    let pool = null;
+    try { pool = await gauge.pool(); } catch (_) { /* older gauges don't have pool() */ }
+
+    return { valid: true, stakingToken, pool: pool || undefined };
   } catch (e) {
     return { valid: false, error: e.message };
   }
@@ -411,4 +428,180 @@ async function resolveToken(chainId, tokenAddress) {
   return { address: ethers.getAddress(tokenAddress), symbol, name, decimals: Number(decimals) };
 }
 
-module.exports = { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, getCurveCoin, suggestRoutes, resolveToken, getProvider };
+/**
+ * Scan a Convex/Aura booster to find the pool ID matching a given LP token.
+ * Scans newest pools first so recent vaults are found quickly.
+ * Returns { found: true, pid } or { found: false }.
+ */
+async function findPoolByLp(chainId, boosterAddress, lpAddress) {
+  const provider = getProvider(chainId);
+  const booster = new ethers.Contract(ethers.getAddress(boosterAddress), BOOSTER_ABI, provider);
+  const poolLength = Number(await booster.poolLength());
+  const target = lpAddress.toLowerCase();
+  const BATCH = 20; // parallel requests per round
+
+  for (let start = poolLength - 1; start >= 0; start -= BATCH) {
+    const pids = [];
+    for (let i = start; i > start - BATCH && i >= 0; i--) pids.push(i);
+
+    const results = await Promise.all(
+      pids.map(pid =>
+        booster.poolInfo(pid)
+          .then(info => ({ pid, lptoken: info.lptoken }))
+          .catch(() => null)
+      )
+    );
+
+    for (const r of results) {
+      if (r && r.lptoken && r.lptoken.toLowerCase() === target) {
+        return { found: true, pid: r.pid, poolLength };
+      }
+    }
+  }
+
+  return { found: false, poolLength };
+}
+
+/**
+ * Read reward tokens from a Solidly/Velodrome gauge.
+ * Tries rewardsListLength+rewards(i) (V2), then rewardTokens(i) array, then single rewardToken().
+ * Returns an array of checksummed token addresses.
+ */
+async function getGaugeRewardTokenAddresses(chainId, gaugeAddress) {
+  const provider = getProvider(chainId);
+  const abi = [
+    'function rewardsListLength() view returns (uint256)',
+    'function rewards(uint256 i) view returns (address)',
+    'function rewardTokens(uint256 i) view returns (address)',
+    'function rewardToken() view returns (address)',
+  ];
+  const gauge = new ethers.Contract(ethers.getAddress(gaugeAddress), abi, provider);
+  const ZERO = ethers.ZeroAddress;
+
+  // Velodrome V2: rewardsListLength() + rewards(i)
+  try {
+    const len = Number(await gauge.rewardsListLength());
+    if (len > 0) {
+      const addrs = await Promise.all(Array.from({ length: len }, (_, i) => gauge.rewards(i)));
+      return addrs.filter(a => a && a !== ZERO).map(ethers.getAddress);
+    }
+  } catch (_) {}
+
+  // Some gauges: rewardTokens(i) array, terminates at zero
+  try {
+    const addrs = [];
+    for (let i = 0; i < 8; i++) {
+      const a = await gauge.rewardTokens(i);
+      if (!a || a === ZERO) break;
+      addrs.push(ethers.getAddress(a));
+    }
+    if (addrs.length > 0) return addrs;
+  } catch (_) {}
+
+  // Single rewardToken()
+  try {
+    const a = await gauge.rewardToken();
+    if (a && a !== ZERO) return [ethers.getAddress(a)];
+  } catch (_) {}
+
+  return [];
+}
+
+/**
+ * Read reward tokens from a Convex/Aura BaseRewardPool.
+ * Returns the main rewardToken (CRV/BAL) plus any extra reward tokens.
+ * Returns an array of checksummed token addresses.
+ */
+async function getConvexRewardAddresses(chainId, rewardPoolAddress) {
+  const provider = getProvider(chainId);
+  const pool = new ethers.Contract(ethers.getAddress(rewardPoolAddress), REWARD_POOL_ABI, provider);
+  const ZERO = ethers.ZeroAddress;
+  const addrs = [];
+
+  // Main reward token (CRV for Convex, BAL for Aura)
+  try {
+    const main = await pool.rewardToken();
+    if (main && main !== ZERO) addrs.push(ethers.getAddress(main));
+  } catch (_) {}
+
+  // Extra reward pools
+  try {
+    const extraLen = Number(await pool.extraRewardsLength());
+    const extraPools = await Promise.all(
+      Array.from({ length: extraLen }, (_, i) => pool.extraRewards(i))
+    );
+    const extraTokens = await Promise.all(
+      extraPools.map(addr =>
+        new ethers.Contract(addr, EXTRA_REWARD_ABI, provider)
+          .rewardToken()
+          .catch(() => null)
+      )
+    );
+    for (const t of extraTokens) {
+      if (t && t !== ZERO) addrs.push(ethers.getAddress(t));
+    }
+  } catch (_) {}
+
+  return addrs;
+}
+
+/**
+ * Read reward tokens from a Curve LiquidityGauge or StakeDAO gauge.
+ * Curve gauges expose reward_tokens(uint256 i) — returns up to 8 tokens.
+ * Returns an array of checksummed token addresses.
+ */
+async function getCurveGaugeRewardAddresses(chainId, gaugeAddress) {
+  const provider = getProvider(chainId);
+  const abi = ['function reward_tokens(uint256 i) view returns (address)'];
+  const gauge = new ethers.Contract(ethers.getAddress(gaugeAddress), abi, provider);
+  const ZERO = ethers.ZeroAddress;
+  const addrs = [];
+
+  for (let i = 0; i < 8; i++) {
+    try {
+      const a = await gauge.reward_tokens(i);
+      if (!a || a === ZERO) break;
+      addrs.push(ethers.getAddress(a));
+    } catch (_) { break; }
+  }
+
+  return addrs;
+}
+
+/**
+ * Resolve reward token addresses to full token metadata, then return unique list.
+ * Deduplicates by address.
+ */
+async function resolveRewardTokens(chainId, rawAddresses) {
+  const seen = new Set();
+  const unique = rawAddresses.filter(a => {
+    const k = a.toLowerCase();
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  return Promise.all(unique.map(addr => resolveToken(chainId, addr)));
+}
+
+/**
+ * High-level: detect reward tokens on-chain given strategy type + staking address.
+ * For aura/convex, rewardPool is required (from booster.poolInfo(...).crvRewards).
+ * Returns [{ address, symbol, name, decimals }].
+ */
+async function detectRewardTokens(chainId, stratType, stakingAddress, rewardPool) {
+  let rawAddresses = [];
+
+  if (stratType === 'gauge') {
+    rawAddresses = await getGaugeRewardTokenAddresses(chainId, stakingAddress);
+  } else if (stratType === 'aura' || stratType === 'convex') {
+    if (!rewardPool) return [];
+    rawAddresses = await getConvexRewardAddresses(chainId, rewardPool);
+  } else if (stratType === 'curvegauge' || stratType === 'stakedao') {
+    rawAddresses = await getCurveGaugeRewardAddresses(chainId, stakingAddress);
+  }
+  // chef: too variable to auto-detect reliably — skip
+
+  return resolveRewardTokens(chainId, rawAddresses);
+}
+
+module.exports = { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, getCurveCoin, suggestRoutes, resolveToken, getProvider, findPoolByLp, detectRewardTokens };

@@ -96,11 +96,11 @@ The Vite dev server proxies all `/api/` requests to the backend automatically.
 | 3 — Staking     | Choose the strategy type from six options, then paste the contract address: |
 |                 | • **MasterChef** — PancakeSwap, SushiSwap, etc. (needs Pool ID) |
 |                 | • **Gauge** — Velodrome, Aerodrome, Solidly-style gauges |
-|                 | • **Aura** — Balancer LP staked on Aura Finance (needs Aura Pool ID) |
-|                 | • **Convex** — Curve LP staked on Convex Finance (needs Convex Pool ID + Curve pool) |
-|                 | • **Curve Gauge** — Curve native LiquidityGauge with CRV Minter (needs Curve pool) |
+|                 | • **Aura** — Balancer LP staked on Aura Finance (Pool ID **auto-detected** from booster scan) |
+|                 | • **Convex** — Curve LP staked on Convex Finance (Pool ID **auto-detected**; Curve pool **auto-filled** from gauge) |
+|                 | • **Curve Gauge** — Curve native LiquidityGauge (Curve pool address **auto-filled** from gauge.pool()) |
 |                 | • **StakeDAO** — StakeDAO sd-gauge (no external Minter; CRV distributed via `claim_rewards`) |
-| 4 — Rewards     | Select reward tokens from the saved list, or add a new one by address. For Aura vaults enter BAL + AURA. |
+| 4 — Rewards     | Reward tokens are **auto-detected** from the staking contract and pre-selected. You can add more by address or deselect any you don't want. Auto-detected tokens are marked with ⚡. |
 | 5 — Routes      | For **chef**: auto-suggested swap routes (reward→native, reward→LP0, reward→LP1). For **all factory strategies** (gauge, aura, convex, curvegauge, stakedao): pick the `depositToken` — BeefySwapper handles all reward swaps automatically. |
 | 6 — Vault Name  | Name your vault and moo-token (e.g. `Beefy CAKE-BNB` / `mooCakeBNB`). |
 | 7 — Review      | Full summary of all parameters. Click **DRY-RUN** to test on a forked chain first. |
@@ -325,6 +325,8 @@ beefyFinal/
 | GET  | `/api/validate-curvegauge?chainId=1&gauge=0x…` | Validate Curve native LiquidityGauge |
 | GET  | `/api/validate-stakedao?chainId=1&gauge=0x…` | Validate StakeDAO gauge |
 | GET  | `/api/curve-coin?chainId=1&curvePool=0x…&coinIndex=0` | Resolve Curve pool coin by index |
+| GET  | `/api/find-pool-id?chainId=1&booster=0x…&lp=0x…` | Scan booster.poolInfo() newest-first to find pool ID matching LP token (Convex / Aura) |
+| GET  | `/api/reward-tokens?chainId=1&stratType=gauge&staking=0x…` | Auto-detect reward tokens from staking contract; `rewardPool=0x…` required for aura/convex |
 | POST | `/api/suggest-routes` | Auto-suggest swap routes (body: `{chainId, rewardToken, token0, token1}`) |
 | GET  | `/api/resolve-token?chainId=56&address=0x…` | Resolve ERC-20 symbol/name/decimals |
 | GET  | `/api/tokens/:chainId` | Get saved reward tokens for a chain |
