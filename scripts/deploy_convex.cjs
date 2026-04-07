@@ -1,6 +1,9 @@
 'use strict';
 /**
- * deploy_convex.cjs — deploys BeefyVaultV7 + StrategyCurveConvexLP
+ * deploy_convex.cjs — deploys BeefyVaultV7 + StrategyCurveConvexFactory (via StrategyFactory)
+ *
+ * Uses Beefy's official audited StrategyCurveConvexFactory cloned from StrategyFactory.
+ * BeefySwapper handles all reward→native swaps; you only supply a depositToken.
  *
  * Reads params from scripts/_deploy_params.json (written by deployer.js).
  * Outputs exactly one line:  DEPLOY_RESULT=<json>
@@ -19,15 +22,11 @@ async function main() {
     want,                   // Curve LP token
     staking: boosterAddr,   // Convex Booster address
     poolId: convexPoolId,   // Convex pool ID
-    curvePool,              // Curve pool contract address
-    coinIndex,              // Index of coin to compound into (0, 1, or 2)
-    nCoins,                 // 2 or 3
-    outputToNativeRoute,    // [CRV, ..., WETH]
-    outputToCoinRoute,      // [WETH, ..., coin]
+    depositToken,           // single Curve pool token for liquidity add after BeefySwapper
+    rewardTokens,           // array of reward token addresses
     harvestOnDeposit,
     vaultName,
     vaultSymbol,
-    unirouter,
     strategist: strategistParam,
     beefyAddresses,
     dryRun,
@@ -35,12 +34,15 @@ async function main() {
 
   console.log(`\n[convex-deploy] mode=${dryRun ? 'DRY-RUN (fork)' : 'LIVE'} network=${network.name} chainId=${chainId}`);
   console.log(`[convex-deploy] want=${want} booster=${boosterAddr} convexPoolId=${convexPoolId}`);
-  console.log(`[convex-deploy] curvePool=${curvePool} coinIndex=${coinIndex} nCoins=${nCoins}`);
+  console.log(`[convex-deploy] depositToken=${depositToken}`);
 
   const [deployer] = await ethers.getSigners();
   const strategistAddress = strategistParam || deployer.address;
   console.log(`[convex-deploy] deployer=${deployer.address}`);
   console.log(`[convex-deploy] strategist=${strategistAddress}`);
+
+  if (!beefyAddresses.strategyFactory) throw new Error('strategyFactory not configured for this chain');
+  if (!beefyAddresses.beefySwapper)   throw new Error('beefySwapper not configured for this chain');
 
   const ZERO = '0x0000000000000000000000000000000000000000';
 
@@ -71,14 +73,34 @@ async function main() {
     console.log(`[convex-deploy] vault deployed directly: ${vaultAddress}`);
   }
 
-  // ── 2. Deploy strategy ────────────────────────────────────────────────────
-  const StratFactory = await ethers.getContractFactory('StrategyCurveConvexLP');
-  const strategy = await StratFactory.deploy();
-  await strategy.waitForDeployment();
-  const stratAddress = await strategy.getAddress();
-  console.log(`[convex-deploy] strategy deployed: ${stratAddress}`);
+  // ── 2. Clone strategy via StrategyFactory ─────────────────────────────────
+  const strategyFactoryAbi = [
+    'function createStrategy(string calldata _strategyName) external returns (address)',
+    'event ProxyCreated(address proxy)',
+  ];
+  const strategyFactory = new ethers.Contract(beefyAddresses.strategyFactory, strategyFactoryAbi, deployer);
+  const stratTx = await strategyFactory.createStrategy('CurveConvex');
+  const stratReceipt0 = await stratTx.wait();
+  let stratAddress;
+  const sIface = new ethers.Interface(strategyFactoryAbi);
+  for (const log of stratReceipt0.logs) {
+    try {
+      const parsed = sIface.parseLog(log);
+      if (parsed.name === 'ProxyCreated') { stratAddress = parsed.args.proxy; break; }
+    } catch {}
+  }
+  if (!stratAddress) throw new Error('ProxyCreated event not found in StrategyFactory tx');
+  console.log(`[convex-deploy] strategy cloned (CurveConvex): ${stratAddress}`);
 
-  // ── 3. Initialize vault ───────────────────────────────────────────────────
+  // ── 3. Resolve gauge address from Convex Booster ─────────────────────────
+  // booster.poolInfo(pid) returns (lptoken, token, gauge, crvRewards, stash, shutdown)
+  const boosterAbi = ['function poolInfo(uint256 pid) external view returns (address lptoken, address token, address gauge, address crvRewards, address stash, bool shutdown)'];
+  const booster = new ethers.Contract(boosterAddr, boosterAbi, deployer);
+  const poolInfo = await booster.poolInfo(Number(convexPoolId));
+  const gaugeAddr = poolInfo[2]; // index 2 = gauge
+  console.log(`[convex-deploy] gauge (from booster.poolInfo): ${gaugeAddr}`);
+
+  // ── 4. Initialize vault ───────────────────────────────────────────────────
   const vaultAbi = [
     'function initialize(address strategy, string name, string symbol, uint256 approvalDelay) external',
   ];
@@ -86,33 +108,41 @@ async function main() {
   await (await vault.initialize(stratAddress, vaultName, vaultSymbol, 21600)).wait();
   console.log(`[convex-deploy] vault initialized`);
 
-  // ── 4. Initialize strategy ────────────────────────────────────────────────
-  const commonAddresses = [
-    vaultAddress,
-    unirouter || beefyAddresses.unirouter,
-    beefyAddresses.keeper,
-    strategistAddress,
-    beefyAddresses.beefyFeeRecipient,
-    beefyAddresses.beefyFeeConfig,
-  ];
+  // ── 5. Initialize strategy ────────────────────────────────────────────────
+  // StrategyCurveConvexFactory.initialize(
+  //   address _gauge,       — from booster.poolInfo(pid)[2]
+  //   uint256 _pid,         — Convex pool ID
+  //   address[] _rewards,   — reward token addresses
+  //   Addresses {want, depositToken, factory, vault, swapper, strategist}
+  // )
+  const addresses = {
+    want:         want,
+    depositToken: depositToken,
+    factory:      beefyAddresses.strategyFactory,
+    vault:        vaultAddress,
+    swapper:      beefyAddresses.beefySwapper,
+    strategist:   strategistAddress,
+  };
 
+  const rewardAddresses = (rewardTokens || []).map(t => t.address || t);
+
+  const stratAbi = [
+    'function initialize(address _gauge, uint256 _pid, address[] calldata _rewards, tuple(address want, address depositToken, address factory, address vault, address swapper, address strategist) _addresses) external',
+  ];
+  const strategy = new ethers.Contract(stratAddress, stratAbi, deployer);
   const txStrat = await strategy.initialize(
-    want,
-    boosterAddr,
+    gaugeAddr,
     Number(convexPoolId),
-    curvePool,
-    Number(coinIndex),
-    Number(nCoins),
-    outputToNativeRoute,
-    outputToCoinRoute,
-    commonAddresses
+    rewardAddresses,
+    addresses
   );
   const stratReceipt = await txStrat.wait();
   console.log(`[convex-deploy] strategy initialized`);
   const deployBlock = await ethers.provider.getBlock(stratReceipt.blockNumber);
   const blockTimestamp = deployBlock ? deployBlock.timestamp : Math.floor(Date.now() / 1000);
   console.log(`[convex-deploy] block ${stratReceipt.blockNumber} timestamp: ${blockTimestamp}`);
-  // ── Optional: harvestOnDeposit ───────────────────────────────────────────────
+
+  // ── Optional: harvestOnDeposit ────────────────────────────────────────────
   if (harvestOnDeposit) {
     try {
       const hodAbi = ['function setHarvestOnDeposit(bool _harvestOnDeposit) external'];
@@ -120,11 +150,12 @@ async function main() {
       await (await stratHod.setHarvestOnDeposit(true)).wait();
       console.log(`[convex-deploy] harvestOnDeposit set to true`);
     } catch (e) {
-      console.warn(`[convex-deploy] setHarvestOnDeposit not supported by this strategy — skipped`);
+      console.warn(`[convex-deploy] setHarvestOnDeposit not supported — skipped`);
     }
   }
 
-  // ── 5. Transfer vault ownership to Beefy multisig ─────────────────────────
+  // ── 6. Transfer vault ownership to Beefy multisig ─────────────────────────
+  // Note: strategy ownership stays with StrategyFactory (not transferred manually)
   const vaultOwner = beefyAddresses.vaultOwner;
   if (vaultOwner && vaultOwner !== ZERO) {
     const vaultOwnerAbi = ['function transferOwnership(address newOwner) external'];
@@ -136,6 +167,7 @@ async function main() {
   const result = {
     vaultAddress,
     strategyAddress: stratAddress,
+    strategyType: 'CurveConvex',
     vaultName,
     vaultSymbol,
     chainId,

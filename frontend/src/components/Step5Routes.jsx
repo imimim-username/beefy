@@ -40,28 +40,73 @@ function EditableRoute({ label, route, setRoute, tokenMap }) {
   );
 }
 
-/**
- * Build simple 2-hop route suggestions without calling the backend.
- * Works for convex where routes are straightforward.
- */
-function buildSimpleRoute(from, to) {
-  if (!from || !to) return [];
-  if (from.toLowerCase() === to.toLowerCase()) return [from];
-  return [from, to];
-}
-
-// ─── Aura: deposit token selector ────────────────────────────────────────────
+// ─── Factory strategy harvest-flow descriptions ────────────────────────────────
 //
-// StrategyBalancerV3 (official Beefy audited contract) uses a single "deposit
-// token" to add liquidity to the Balancer pool on harvest. Rewards (BAL, AURA)
-// are swapped to native via BeefySwapper, then native → depositToken, then
-// depositToken is single-asset joined into the pool to mint BPT.
-//
-// Best choice: the pool token that matches the chain's native (WETH on Ethereum)
-// so the strategy skips the extra swap. If native is not a pool token, pick any
-// pool token that BeefySwapper can reach from native.
+// All factory strategies (aura, gauge, convex, curvegauge, stakedao) use
+// BeefySwapper to handle all reward→native swaps automatically. You only need
+// to choose which pool token the strategy deposits into the pool to compound.
 
-function AuraDepositTokenStep({ form, setForm }) {
+const FACTORY_DESCRIPTIONS = {
+  aura: {
+    title: 'How StrategyBalancerV3 harvests:',
+    steps: [
+      'Claims BAL + AURA rewards from Aura Finance',
+      'BeefySwapper swaps BAL + AURA → native (WETH)',
+      'If needed, swaps native → deposit token',
+      'Single-asset joins the Balancer pool to mint BPT',
+    ],
+    hint: 'Choose native (WETH) if it\'s a pool token — saves a swap step.',
+  },
+  gauge: {
+    title: 'How StrategyVelodrome harvests:',
+    steps: [
+      'Claims gauge reward tokens (e.g. OP, VELO, AERO)',
+      'BeefySwapper swaps all rewards → native',
+      'If needed, swaps native → deposit token',
+      'Adds liquidity to the Solidly pool to mint LP',
+    ],
+    hint: 'Choose the pool token closest to native for lowest slippage.',
+  },
+  convex: {
+    title: 'How StrategyCurveConvexFactory harvests:',
+    steps: [
+      'Claims CRV + CVX rewards from Convex',
+      'BeefySwapper swaps CRV + CVX → native',
+      'If needed, swaps native → deposit token',
+      'Adds single-sided liquidity to the Curve pool to mint LP',
+    ],
+    hint: 'Choose the pool token BeefySwapper can most easily reach from native.',
+  },
+  curvegauge: {
+    title: 'How StrategyCurveConvexFactory (pure Curve) harvests:',
+    steps: [
+      'Claims CRV rewards directly from the Curve LiquidityGauge',
+      'BeefySwapper swaps CRV → native',
+      'If needed, swaps native → deposit token',
+      'Adds single-sided liquidity to the Curve pool to mint LP',
+    ],
+    hint: 'Choose the pool token BeefySwapper can most easily reach from native.',
+  },
+  stakedao: {
+    title: 'How StrategyStakeDaoV2 harvests:',
+    steps: [
+      'Claims CRV + SDT rewards via claim_rewards() on the sd-gauge',
+      'BeefySwapper swaps CRV + SDT → native',
+      'If needed, swaps native → deposit token',
+      'Adds single-sided liquidity to the Curve pool to mint LP',
+    ],
+    hint: 'Choose the pool token BeefySwapper can most easily reach from native.',
+  },
+};
+
+// All strategy types that use the StrategyFactory + BeefySwapper pattern
+const FACTORY_TYPES = new Set(['aura', 'gauge', 'convex', 'curvegauge', 'stakedao']);
+
+// ─── Shared deposit token picker (all factory strategies) ────────────────────
+
+function FactoryDepositTokenStep({ form, setForm }) {
+  const stratType   = form.strategyType;
+  const desc        = FACTORY_DESCRIPTIONS[stratType] || FACTORY_DESCRIPTIONS.aura;
   const chainInfo   = CHAINS_INFO[form.chainId] || {};
   const nativeToken = chainInfo.nativeToken || '';
 
@@ -115,19 +160,16 @@ function AuraDepositTokenStep({ form, setForm }) {
     <div style={{ display: 'grid', gap: '12px' }}>
       <PixelBox style={{ padding: '10px' }}>
         <div style={{ fontSize: '7px', color: 'var(--cyan)', lineHeight: '1.8' }}>
-          ℹ️ <strong>How StrategyBalancerV3 harvests:</strong>
+          ℹ️ <strong>{desc.title}</strong>
           <br />
-          1. Claims BAL + AURA rewards from Aura
+          {desc.steps.map((step, i) => (
+            <React.Fragment key={i}>
+              {i + 1}. {step}
+              <br />
+            </React.Fragment>
+          ))}
           <br />
-          2. BeefySwapper swaps BAL + AURA → native (WETH)
-          <br />
-          3. If needed, swaps native → <em>deposit token</em>
-          <br />
-          4. Single-asset joins the Balancer pool to mint BPT
-          <br />
-          <br />
-          <strong>Pick the deposit token below.</strong> Choose native (WETH) if
-          it's a pool token — it saves a swap step.
+          <strong>Pick the deposit token below.</strong> {desc.hint}
         </div>
       </PixelBox>
 
@@ -216,10 +258,8 @@ function AuraDepositTokenStep({ form, setForm }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function Step5Routes({ form, setForm, onNext, onBack }) {
-  const stratType = form.strategyType;
-  const isAura    = stratType === 'aura';
-  const isConvex  = stratType === 'convex';
-  const isSpecial = isAura || isConvex;
+  const stratType   = form.strategyType;
+  const isFactory   = FACTORY_TYPES.has(stratType);
 
   const [loading, setLoading] = useState(false);
   const [routes, setRoutes]   = useState(form.routes || null);
@@ -243,43 +283,32 @@ export function Step5Routes({ form, setForm, onNext, onBack }) {
     form.rewardTokens.forEach(t => { tokenMap[t.address.toLowerCase()] = t; });
   }
   if (nativeToken) tokenMap[nativeToken.toLowerCase()] = { symbol: nativeSymbol };
-  if (form.convexCoin) tokenMap[form.convexCoin.address.toLowerCase()] = form.convexCoin;
 
-  /* ── Auto-suggest routes on mount (non-Aura strategies) ───────────────────── */
+  /* ── Auto-suggest routes on mount (chef only) ─────────────────────────────── */
   useEffect(() => {
-    if (isAura) return; // Aura uses depositToken picker instead
+    if (isFactory) return; // factory strategies use depositToken picker instead
     if (routes) return;
     if (!primaryReward || !nativeToken) return;
+    if (!lp0 || !lp1) return;
 
-    if (isConvex) {
-      const coinAddr = form.convexCoin?.address;
-      const r = {
-        outputToNativeRoute: buildSimpleRoute(primaryReward.address, nativeToken),
-        outputToCoinRoute:   buildSimpleRoute(nativeToken, coinAddr),
-      };
-      setRoutes(r);
-      setForm(f => ({ ...f, routes: r }));
-    } else {
-      if (!lp0 || !lp1) return;
-      setLoading(true);
-      api.suggestRoutes({
-        chainId:     form.chainId,
-        rewardToken: primaryReward.address,
-        token0:      lp0.address,
-        token1:      lp1.address,
-      }).then(res => {
-        if (res.ok) {
-          const r = {
-            outputToNativeRoute: res.outputToNativeRoute,
-            outputToLp0Route:    res.outputToLp0Route,
-            outputToLp1Route:    res.outputToLp1Route,
-          };
-          setRoutes(r);
-          setForm(f => ({ ...f, routes: r }));
-        }
-        setLoading(false);
-      }).catch(() => setLoading(false));
-    }
+    setLoading(true);
+    api.suggestRoutes({
+      chainId:     form.chainId,
+      rewardToken: primaryReward.address,
+      token0:      lp0.address,
+      token1:      lp1.address,
+    }).then(res => {
+      if (res.ok) {
+        const r = {
+          outputToNativeRoute: res.outputToNativeRoute,
+          outputToLp0Route:    res.outputToLp0Route,
+          outputToLp1Route:    res.outputToLp1Route,
+        };
+        setRoutes(r);
+        setForm(f => ({ ...f, routes: r }));
+      }
+      setLoading(false);
+    }).catch(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -291,53 +320,41 @@ export function Step5Routes({ form, setForm, onNext, onBack }) {
     });
   }
 
-  /* ── canProceed per strategy ───────────────────────────────────────────────── */
+  /* ── canProceed ────────────────────────────────────────────────────────────── */
   let canProceed = false;
-  if (isAura) {
-    // For Aura: need a valid depositToken (not zero address)
+  if (isFactory) {
+    // Factory strategies: need a valid non-zero depositToken
     const dt = form.depositToken || '';
     canProceed = /^0x[0-9a-fA-F]{40}$/.test(dt) && dt !== '0x0000000000000000000000000000000000000000';
   } else if (routes) {
-    if (isConvex) {
-      canProceed = routes.outputToNativeRoute?.length >= 2 &&
-                   routes.outputToCoinRoute?.length  >= 1;
-    } else {
-      canProceed = routes.outputToNativeRoute?.length >= 2 &&
-                   routes.outputToLp0Route?.length >= 1 &&
-                   routes.outputToLp1Route?.length >= 1;
-    }
+    // Chef: need outputToNativeRoute + both LP routes
+    canProceed = routes.outputToNativeRoute?.length >= 2 &&
+                 routes.outputToLp0Route?.length    >= 1 &&
+                 routes.outputToLp1Route?.length    >= 1;
   }
 
   const rewardSymbol = primaryReward?.symbol || '?';
-  const coinSymbol   = form.convexCoin?.symbol || '?';
 
   return (
     <PixelBox variant="gold" style={{ padding: '24px' }}>
       <div style={{ marginBottom: '20px' }}>
         <div style={{ color: 'var(--gold)', fontSize: '11px', marginBottom: '8px' }}>
-          ▶ STEP 5 — {isAura ? 'DEPOSIT TOKEN' : 'SWAP ROUTES'}
+          ▶ STEP 5 — {isFactory ? 'DEPOSIT TOKEN' : 'SWAP ROUTES'}
         </div>
         <div style={{ fontSize: '7px', color: 'var(--white)', marginBottom: '8px' }}>
-          {isAura
-            ? 'StrategyBalancerV3 uses BeefySwapper to handle all reward → native swaps automatically. You only need to choose which pool token it deposits into Balancer to mint BPT.'
-            : isConvex
-            ? 'The Convex strategy swaps CRV rewards → native, charges fees, then swaps native → coin and adds Curve liquidity.'
-            : 'Routes tell the strategy how to swap reward tokens into LP components.'}
-          {!isAura && (
-            <>
-              <br />We auto-suggest them — review and edit if needed.
-            </>
-          )}
+          {isFactory
+            ? 'This strategy uses BeefySwapper to handle all reward → native swaps automatically. You only need to choose which pool token it deposits to compound.'
+            : 'Routes tell the strategy how to swap reward tokens into LP components. We auto-suggest them — review and edit if needed.'}
         </div>
       </div>
 
-      {/* ── Aura: deposit token picker ─────────────────────────────────────────── */}
-      {isAura && (
-        <AuraDepositTokenStep form={form} setForm={setForm} />
+      {/* ── Factory strategies: deposit token picker ──────────────────────────── */}
+      {isFactory && (
+        <FactoryDepositTokenStep form={form} setForm={setForm} />
       )}
 
-      {/* ── Non-Aura: route inputs ─────────────────────────────────────────────── */}
-      {!isAura && (
+      {/* ── Chef: route inputs ────────────────────────────────────────────────── */}
+      {!isFactory && (
         <>
           {loading && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--cyan)' }}>
@@ -353,32 +370,18 @@ export function Step5Routes({ form, setForm, onNext, onBack }) {
                 setRoute={val => setRoute('outputToNativeRoute', val)}
                 tokenMap={tokenMap}
               />
-
-              {!isSpecial && (
-                <>
-                  <EditableRoute
-                    label={`${rewardSymbol} → ${lp0?.symbol || 'LP token 0'}`}
-                    route={routes.outputToLp0Route || []}
-                    setRoute={val => setRoute('outputToLp0Route', val)}
-                    tokenMap={tokenMap}
-                  />
-                  <EditableRoute
-                    label={`${rewardSymbol} → ${lp1?.symbol || 'LP token 1'}`}
-                    route={routes.outputToLp1Route || []}
-                    setRoute={val => setRoute('outputToLp1Route', val)}
-                    tokenMap={tokenMap}
-                  />
-                </>
-              )}
-
-              {isConvex && (
-                <EditableRoute
-                  label={`${nativeSymbol} → ${coinSymbol} (native to Curve coin)`}
-                  route={routes.outputToCoinRoute || []}
-                  setRoute={val => setRoute('outputToCoinRoute', val)}
-                  tokenMap={tokenMap}
-                />
-              )}
+              <EditableRoute
+                label={`${rewardSymbol} → ${lp0?.symbol || 'LP token 0'}`}
+                route={routes.outputToLp0Route || []}
+                setRoute={val => setRoute('outputToLp0Route', val)}
+                tokenMap={tokenMap}
+              />
+              <EditableRoute
+                label={`${rewardSymbol} → ${lp1?.symbol || 'LP token 1'}`}
+                route={routes.outputToLp1Route || []}
+                setRoute={val => setRoute('outputToLp1Route', val)}
+                tokenMap={tokenMap}
+              />
             </div>
           )}
         </>

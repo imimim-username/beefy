@@ -1,7 +1,11 @@
 'use strict';
 /**
- * deploy_curvegauge.cjs — deploys BeefyVaultV7 + StrategyCommonCurveLP
- *                          for a Curve native LiquidityGauge (minterEnabled=true).
+ * deploy_curvegauge.cjs — deploys BeefyVaultV7 + StrategyCurveConvexFactory (via StrategyFactory)
+ *                          in pure Curve mode (no Convex) using NO_PID sentinel.
+ *
+ * Uses Beefy's official audited StrategyCurveConvexFactory cloned from StrategyFactory.
+ * Passing NO_PID=42069 as the _pid tells the strategy to skip Convex and stake
+ * directly in the Curve native LiquidityGauge. BeefySwapper handles all reward swaps.
  *
  * Reads params from scripts/_deploy_params.json (written by deployer.js).
  * Outputs exactly one line:  DEPLOY_RESULT=<json>
@@ -11,36 +15,37 @@ const { ethers, network } = require('hardhat');
 const path = require('path');
 const fs   = require('fs');
 
+// Sentinel value: tells StrategyCurveConvexFactory to operate in pure Curve mode (skip Convex)
+const NO_PID = 42069;
+
 async function main() {
   const paramsFile = path.join(__dirname, '_deploy_params.json');
   const params = JSON.parse(fs.readFileSync(paramsFile, 'utf8'));
 
   const {
     chainId,
-    want,                  // Curve LP token
-    staking: gaugeAddr,    // Curve gauge address
-    curvePool,             // Curve pool contract (for add_liquidity)
-    coinIndex,             // which coin to compound into
-    nCoins,                // 2 or 3
-    minter,                // CRV Minter address
-    outputToNativeRoute,   // [CRV, ..., WETH]
-    outputToCoinRoute,     // [WETH, ..., coin]
+    want,                // Curve LP token
+    staking: gaugeAddr,  // Curve native LiquidityGauge address
+    depositToken,        // single Curve pool token for liquidity add after BeefySwapper
+    rewardTokens,        // array of reward token addresses
     harvestOnDeposit,
     vaultName,
     vaultSymbol,
-    unirouter,
     strategist: strategistParam,
     beefyAddresses,
     dryRun,
   } = params;
 
   console.log(`\n[curvegauge-deploy] mode=${dryRun ? 'DRY-RUN (fork)' : 'LIVE'} network=${network.name} chainId=${chainId}`);
-  console.log(`[curvegauge-deploy] want=${want} gauge=${gaugeAddr} curvePool=${curvePool}`);
-  console.log(`[curvegauge-deploy] coinIndex=${coinIndex} nCoins=${nCoins} minter=${minter}`);
+  console.log(`[curvegauge-deploy] want=${want} gauge=${gaugeAddr} (pure Curve, NO_PID=${NO_PID})`);
+  console.log(`[curvegauge-deploy] depositToken=${depositToken}`);
 
   const [deployer] = await ethers.getSigners();
   const strategistAddress = strategistParam || deployer.address;
   console.log(`[curvegauge-deploy] deployer=${deployer.address}`);
+
+  if (!beefyAddresses.strategyFactory) throw new Error('strategyFactory not configured for this chain');
+  if (!beefyAddresses.beefySwapper)   throw new Error('beefySwapper not configured for this chain');
 
   const ZERO = '0x0000000000000000000000000000000000000000';
 
@@ -71,12 +76,24 @@ async function main() {
     console.log(`[curvegauge-deploy] vault deployed directly: ${vaultAddress}`);
   }
 
-  // ── 2. Deploy strategy ────────────────────────────────────────────────────
-  const StratFactory = await ethers.getContractFactory('StrategyCommonCurveLP');
-  const strategy = await StratFactory.deploy();
-  await strategy.waitForDeployment();
-  const stratAddress = await strategy.getAddress();
-  console.log(`[curvegauge-deploy] strategy deployed: ${stratAddress}`);
+  // ── 2. Clone strategy via StrategyFactory ─────────────────────────────────
+  const strategyFactoryAbi = [
+    'function createStrategy(string calldata _strategyName) external returns (address)',
+    'event ProxyCreated(address proxy)',
+  ];
+  const strategyFactory = new ethers.Contract(beefyAddresses.strategyFactory, strategyFactoryAbi, deployer);
+  const stratTx = await strategyFactory.createStrategy('CurveConvex');
+  const stratReceipt0 = await stratTx.wait();
+  let stratAddress;
+  const sIface = new ethers.Interface(strategyFactoryAbi);
+  for (const log of stratReceipt0.logs) {
+    try {
+      const parsed = sIface.parseLog(log);
+      if (parsed.name === 'ProxyCreated') { stratAddress = parsed.args.proxy; break; }
+    } catch {}
+  }
+  if (!stratAddress) throw new Error('ProxyCreated event not found in StrategyFactory tx');
+  console.log(`[curvegauge-deploy] strategy cloned (CurveConvex/pure-Curve): ${stratAddress}`);
 
   // ── 3. Initialize vault ───────────────────────────────────────────────────
   const vaultAbi = ['function initialize(address strategy, string name, string symbol, uint256 approvalDelay) external'];
@@ -85,33 +102,40 @@ async function main() {
   console.log(`[curvegauge-deploy] vault initialized`);
 
   // ── 4. Initialize strategy ────────────────────────────────────────────────
-  const commonAddresses = [
-    vaultAddress,
-    unirouter || beefyAddresses.unirouter,
-    beefyAddresses.keeper,
-    strategistAddress,
-    beefyAddresses.beefyFeeRecipient,
-    beefyAddresses.beefyFeeConfig,
-  ];
+  // StrategyCurveConvexFactory.initialize(
+  //   address _gauge,       — Curve native LiquidityGauge address
+  //   uint256 _pid,         — NO_PID (42069) = pure Curve mode, skip Convex
+  //   address[] _rewards,   — reward token addresses
+  //   Addresses {want, depositToken, factory, vault, swapper, strategist}
+  // )
+  const addresses = {
+    want:         want,
+    depositToken: depositToken,
+    factory:      beefyAddresses.strategyFactory,
+    vault:        vaultAddress,
+    swapper:      beefyAddresses.beefySwapper,
+    strategist:   strategistAddress,
+  };
 
+  const rewardAddresses = (rewardTokens || []).map(t => t.address || t);
+
+  const stratAbi = [
+    'function initialize(address _gauge, uint256 _pid, address[] calldata _rewards, tuple(address want, address depositToken, address factory, address vault, address swapper, address strategist) _addresses) external',
+  ];
+  const strategy = new ethers.Contract(stratAddress, stratAbi, deployer);
   const txStrat = await strategy.initialize(
-    want,
     gaugeAddr,
-    curvePool,
-    Number(coinIndex),
-    Number(nCoins),
-    true,                 // minterEnabled = true for Curve native gauge
-    minter || ZERO,
-    outputToNativeRoute,
-    outputToCoinRoute,
-    commonAddresses
+    NO_PID,
+    rewardAddresses,
+    addresses
   );
   const stratReceipt = await txStrat.wait();
-  console.log(`[curvegauge-deploy] strategy initialized`);
+  console.log(`[curvegauge-deploy] strategy initialized (pid=${NO_PID} = pure Curve)`);
   const deployBlock = await ethers.provider.getBlock(stratReceipt.blockNumber);
   const blockTimestamp = deployBlock ? deployBlock.timestamp : Math.floor(Date.now() / 1000);
   console.log(`[curvegauge-deploy] block ${stratReceipt.blockNumber} timestamp: ${blockTimestamp}`);
-  // ── Optional: harvestOnDeposit ───────────────────────────────────────────────
+
+  // ── Optional: harvestOnDeposit ────────────────────────────────────────────
   if (harvestOnDeposit) {
     try {
       const hodAbi = ['function setHarvestOnDeposit(bool _harvestOnDeposit) external'];
@@ -119,11 +143,12 @@ async function main() {
       await (await stratHod.setHarvestOnDeposit(true)).wait();
       console.log(`[curvegauge-deploy] harvestOnDeposit set to true`);
     } catch (e) {
-      console.warn(`[curvegauge-deploy] setHarvestOnDeposit not supported by this strategy — skipped`);
+      console.warn(`[curvegauge-deploy] setHarvestOnDeposit not supported — skipped`);
     }
   }
 
   // ── 5. Transfer vault ownership ───────────────────────────────────────────
+  // Note: strategy ownership stays with StrategyFactory (not transferred manually)
   const vaultOwner = beefyAddresses.vaultOwner;
   if (vaultOwner && vaultOwner !== ZERO) {
     const vaultForOwner = new ethers.Contract(vaultAddress, ['function transferOwnership(address newOwner) external'], deployer);
@@ -134,6 +159,7 @@ async function main() {
   const result = {
     vaultAddress,
     strategyAddress: stratAddress,
+    strategyType: 'CurveConvex (pure Curve, NO_PID)',
     vaultName,
     vaultSymbol,
     chainId,

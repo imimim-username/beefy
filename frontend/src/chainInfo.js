@@ -43,6 +43,8 @@ export const CHAINS_INFO = {
       strategyOwner:     '0x65CF7E8C0d431f59787D07Fa1A9f8725bbC33F7E',
       unirouter:         '0x10ED43C718714eb63d5aA57B78B54704E256024E',
       balancerVault:     '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
+      strategyFactory:   '0x8B93779aa8613d9542bCD5e153d536ba5B9039f2',
+      beefySwapper:      '0x4362FE9aC48e7c5ea85a359418bBd7471979F5C2',
     },
   },
   137: {
@@ -59,6 +61,8 @@ export const CHAINS_INFO = {
       unirouter:         '0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff',
       auraBooster:       '0x98Ef32edd24e2c92525E59afc4523041a2aed806',
       balancerVault:     '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
+      strategyFactory:   '0x5f04211F4604bB39F3Ae4E58c3652f7B46022058',
+      beefySwapper:      '0xDd27227Dba7Ea8F5869466A10A8E36Bb2D709b35',
     },
   },
   42161: {
@@ -76,6 +80,8 @@ export const CHAINS_INFO = {
       auraBooster:       '0x98Ef32edd24e2c92525E59afc4523041a2aed806',
       convexBooster:     '0xF403C135812408BFbE8713b5A23a04b3D48AAE31',
       balancerVault:     '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
+      strategyFactory:   '0xeF7746F16e511242e25Ad4FF9732bb5fC35EAB50',
+      beefySwapper:      '0xCee843CD04E3758dDC5BCFf08647DddB117151D0',
     },
   },
   10: {
@@ -92,6 +98,8 @@ export const CHAINS_INFO = {
       unirouter:         '0x9c12939390052919aF3155f41Bf4160Fd3666A6f',
       auraBooster:       '0x98Ef32edd24e2c92525E59afc4523041a2aed806',
       balancerVault:     '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
+      strategyFactory:   '0x6e206FE9C629c37e34C49D31796807254F87AE58',
+      beefySwapper:      '0x4ebdf703948ddcea3b11f675b4d1fba9d2414a14',
     },
   },
   8453: {
@@ -108,6 +116,8 @@ export const CHAINS_INFO = {
       unirouter:         '0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43',
       auraBooster:       '0x98Ef32edd24e2c92525E59afc4523041a2aed806',
       balancerVault:     '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
+      strategyFactory:   '0x705A3168F2c48263B1249A11940E6602A4f22a9A',
+      beefySwapper:      '0x9F8c6a094434C6E6f5F2792088Bb4d2D5971DdCc',
     },
   },
   43114: {
@@ -122,6 +132,8 @@ export const CHAINS_INFO = {
       vaultOwner:        '0x690216f462615b749bEEB5AA3f1d89a2BEc45Ecf',
       strategyOwner:     '0x37DC61A76113E7840d4A8F1c1B799cC9ac5Aa854',
       unirouter:         '0x60aE616a2155Ee3d9A68541Ba4544862310933d4',
+      strategyFactory:   '0x9710FAd814B26f736f0F06E977E9136BBa352227',
+      beefySwapper:      '0x4eAac8F5BB8Fd65cf47F1E57B7aF7c93eA92a78e',
     },
   },
   250: {

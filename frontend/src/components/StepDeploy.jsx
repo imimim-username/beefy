@@ -9,16 +9,17 @@ const NETWORK_SHORTNAME = {
   10: 'optimism', 8453: 'base', 43114: 'avax', 250: 'fantom',
 };
 
-// Strategy type → Solidity file base name (for flatten command)
-// Note: Aura vaults use the official StrategyBalancerV3 via StrategyFactory —
-// no manual Etherscan verification is required (it auto-verifies as a proxy).
+// Strategy type → Solidity file base name (for flatten command).
+// Factory strategies (aura, gauge, convex, curvegauge, stakedao) are beacon proxies
+// cloned from StrategyFactory — Etherscan auto-detects and verifies them as proxies.
+// No manual source submission is needed; null signals "auto-verify as proxy".
 const STRAT_FILE = {
-  aura:       null,  // factory clone — auto-verifies as proxy, no flatten needed
-  chef:       'StrategyCommonChefLP',
-  gauge:      'StrategyCommonGaugeLP',
-  convex:     'StrategyCurveConvexLP',
-  curvegauge: 'StrategyCommonCurveLP',
-  stakedao:   'StrategyCommonCurveLP',
+  aura:       null,  // StrategyBalancerV3 via StrategyFactory — auto-verifies as proxy
+  gauge:      null,  // StrategyVelodrome via StrategyFactory — auto-verifies as proxy
+  convex:     null,  // StrategyCurveConvexFactory via StrategyFactory — auto-verifies as proxy
+  curvegauge: null,  // StrategyCurveConvexFactory (pure Curve) via StrategyFactory — auto-verifies
+  stakedao:   null,  // StrategyStakeDaoV2 via StrategyFactory — auto-verifies as proxy
+  chef:       'StrategyCommonChefLP',  // custom contract — manual verification required
 };
 
 // Strategy type → beefy-v2 platformId
@@ -132,7 +133,8 @@ function PostDeployChecklist({ result, form }) {
   const network        = NETWORK_SHORTNAME[form.chainId] || 'TODO-network';
   const stratOwner     = chain.beefyAddresses?.strategyOwner || 'TODO-multisig';
   const isAura         = form.strategyType === 'aura';
-  const stratFile      = STRAT_FILE[form.strategyType]      || 'StrategyTODO';
+  const stratFile      = STRAT_FILE[form.strategyType] ?? null;
+  const isFactoryProxy = stratFile === null; // all factory strategies auto-verify as proxy
   const flatFile       = stratFile ? `solPatch/${stratFile}_flat.sol` : null;
   const contractFile   = stratFile ? `contracts/strategies/${stratFile}.sol` : null;
   const platformId     = PLATFORM_ID[form.strategyType]     || 'TODO-platform-id';
@@ -141,6 +143,8 @@ function PostDeployChecklist({ result, form }) {
   const createdAt = result.blockTimestamp || Math.floor(Date.now() / 1000);
   const addLiqUrl = isAura
     ? `https://balancer.fi/pools/${network}/v3/${(form.want || '').toLowerCase()}/add-liquidity`
+    : (form.strategyType === 'convex' || form.strategyType === 'curvegauge' || form.strategyType === 'stakedao')
+    ? `https://curve.fi/#/${network}/pools/TODO-pool-name/deposit`
     : 'TODO: pool add-liquidity page URL';
 
   // strategyTypeId: 'multi-lp' for Aura/Convex/Curve (multi-token pools), 'lp' for standard 2-token pairs
@@ -186,13 +190,12 @@ function PostDeployChecklist({ result, form }) {
       </div>
 
       {/* ── Step 1: Etherscan verification ─────────────────────────────── */}
-      {isAura ? (
+      {isFactoryProxy ? (
         <CheckStep num="1" title="VERIFY STRATEGY ON ETHERSCAN (AUTO)">
           <p>
             Because the strategy was created by Beefy's <Inline>StrategyFactory</Inline>,
             it is a <strong style={{ color: 'var(--gold)' }}>beacon proxy</strong> pointing to
-            Beefy's audited <Inline>StrategyBalancerV3</Inline> implementation. Etherscan
-            auto-detects this and shows{' '}
+            Beefy's audited implementation. Etherscan auto-detects this and shows{' '}
             <strong style={{ color: 'var(--gold)' }}>"Read as Proxy" / "Write as Proxy"</strong>{' '}
             — no manual source submission is needed.
           </p>

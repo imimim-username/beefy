@@ -101,7 +101,7 @@ The Vite dev server proxies all `/api/` requests to the backend automatically.
 |                 | • **Curve Gauge** — Curve native LiquidityGauge with CRV Minter (needs Curve pool) |
 |                 | • **StakeDAO** — StakeDAO sd-gauge (no external Minter; CRV distributed via `claim_rewards`) |
 | 4 — Rewards     | Select reward tokens from the saved list, or add a new one by address. For Aura vaults enter BAL + AURA. |
-| 5 — Routes      | For chef/gauge: auto-suggested swap routes (reward→native, reward→LP0, reward→LP1). For Aura: pick the `depositToken` used for single-asset liquidity join. |
+| 5 — Routes      | For **chef**: auto-suggested swap routes (reward→native, reward→LP0, reward→LP1). For **all factory strategies** (gauge, aura, convex, curvegauge, stakedao): pick the `depositToken` — BeefySwapper handles all reward swaps automatically. |
 | 6 — Vault Name  | Name your vault and moo-token (e.g. `Beefy CAKE-BNB` / `mooCakeBNB`). |
 | 7 — Review      | Full summary of all parameters. Click **DRY-RUN** to test on a forked chain first. |
 | 8 — Deploy      | After reviewing dry-run output, click **DEPLOY FOR REAL** to broadcast. |
@@ -115,12 +115,12 @@ The UI shows these steps inline after deployment — this section documents them
 
 ### Step 1 — Verify the Strategy on Etherscan
 
-Etherscan source verification requires a **single flattened file**. Generate it from the project root:
+**Factory strategies (gauge, convex, curvegauge, stakedao, aura):** No manual verification needed. Because the strategy is a beacon proxy cloned from Beefy's `StrategyFactory`, Etherscan auto-detects it and shows **"Read as Proxy" / "Write as Proxy"** pointing to the audited implementation. Simply open the strategy address on the block explorer and confirm the proxy tab appears.
+
+**MasterChef (`chef`) only:** Etherscan source verification requires a **single flattened file**. Generate it from the project root:
 
 ```bash
-# Replace StrategyAuraLP with your strategy type:
-#   StrategyCommonChefLP | StrategyCommonGaugeLP | StrategyCurveConvexLP | StrategyCommonCurveLP
-npx hardhat flatten contracts/strategies/StrategyAuraLP.sol > solPatch/StrategyAuraLP_flat.sol
+npx hardhat flatten contracts/strategies/StrategyCommonChefLP.sol > solPatch/StrategyCommonChefLP_flat.sol
 ```
 
 Then open the strategy contract on the block explorer and click **"Verify and Publish"**.
@@ -133,7 +133,7 @@ Choose **Solidity (Single file)** and use these exact settings:
 | Optimization | Yes, 200 runs |
 | License | MIT (3) |
 
-Paste the full contents of `solPatch/StrategyAuraLP_flat.sol` into the source code box.
+Paste the full contents of `solPatch/StrategyCommonChefLP_flat.sol` into the source code box.
 Leave **Constructor Arguments** blank — strategies use `initialize()`, not a constructor.
 
 > **Why `paris`?** The contracts compile with `evmVersion: 'paris'` (see `hardhat.config.cjs`).
@@ -345,22 +345,22 @@ A Beefy vault consists of **two contracts**:
 
 This tool supports six strategy types:
 
-| Strategy type | Contract | Harvest source |
-|---|---|---|
-| `chef` | `StrategyCommonChefLP` | MasterChef farms (PancakeSwap, SushiSwap…) |
-| `gauge` | `StrategyCommonGaugeLP` | Solidly/Velodrome/Aerodrome gauges |
-| `aura` | Beefy's `StrategyBalancerV3` (via StrategyFactory) | Aura Finance — BAL + AURA rewards |
-| `convex` | `StrategyCurveConvexLP` | Convex Finance — CRV + CVX rewards |
-| `curvegauge` | `StrategyCommonCurveLP` (minterEnabled=true) | Curve native LiquidityGauge — CRV via Minter |
-| `stakedao` | `StrategyCommonCurveLP` (minterEnabled=false) | StakeDAO gauge — CRV + SDT via `claim_rewards` |
+| Strategy type | Contract | Audited? | Harvest source |
+|---|---|---|---|
+| `chef` | `StrategyCommonChefLP` (custom) | ⚠ unaudited | MasterChef farms (PancakeSwap, SushiSwap…) |
+| `gauge` | `StrategyVelodrome` via StrategyFactory | ✓ official | Solidly/Velodrome/Aerodrome gauges |
+| `aura` | `StrategyBalancerV3` via StrategyFactory | ✓ official | Aura Finance — BAL + AURA rewards |
+| `convex` | `StrategyCurveConvexFactory` via StrategyFactory | ✓ official | Convex Finance — CRV + CVX rewards |
+| `curvegauge` | `StrategyCurveConvexFactory` via StrategyFactory (NO_PID) | ✓ official | Curve native LiquidityGauge — CRV rewards |
+| `stakedao` | `StrategyStakeDaoV2` via StrategyFactory | ✓ official | StakeDAO gauge — CRV + SDT via `claim_rewards` |
 
-> **Aura vaults** use Beefy's official audited `StrategyBalancerV3` cloned via `StrategyFactory` — no custom strategy contract is deployed. This is required for Beefy to accept the vault listing.
+> **Factory strategies** (gauge, aura, convex, curvegauge, stakedao) use Beefy's official audited implementations cloned via `StrategyFactory` — no custom strategy contract is deployed. This is required for Beefy to accept the vault listing. Only `chef` (MasterChef) remains a custom contract, as no factory-compatible version exists yet.
 
 The strategy exposes `deposit()` / `withdraw()` / `harvest()` to the vault and takes a small fee on each harvest (split between Beefy treasury, the strategist, and the harvester caller).
 
-### Swap Routes (chef / gauge)
+### Swap Routes (chef only)
 
-When a MasterChef or Gauge strategy harvests reward tokens, it needs to know how to turn them into LP:
+When a MasterChef strategy harvests reward tokens, it needs to know how to turn them into LP:
 
 - **outputToNativeRoute** — reward token → wrapped native (e.g. CAKE → WBNB). Fee split is taken in native.
 - **outputToLp0Route** — reward token → LP token0 (half the remaining rewards)
@@ -368,9 +368,11 @@ When a MasterChef or Gauge strategy harvests reward tokens, it needs to know how
 
 The tool auto-suggests these routes from on-chain data. You can edit them manually in Step 5.
 
-### Swap Routes (Aura)
+### Deposit Token (all factory strategies)
 
-Aura vaults use **BeefySwapper** — a Beefy-managed universal aggregator — for all reward→LP swaps. You only need to select a `depositToken` (one of the Balancer pool's underlying tokens) in Step 5; the strategy handles the rest automatically.
+Factory strategies (gauge, aura, convex, curvegauge, stakedao) use **BeefySwapper** — a Beefy-managed universal aggregator — for all reward→native swaps. You only need to select a `depositToken` (one of the pool's underlying tokens) in Step 5; the strategy handles all reward swaps automatically.
+
+Best choice: the pool token that matches the chain's wrapped native (e.g. WETH on Ethereum), so the strategy can skip an extra swap step on each harvest.
 
 ---
 
