@@ -24,14 +24,10 @@
       "decimals": 18
     }
   ],
-  "outputToNativeRoute": [
-    "0xba100000625a3754423978a60c9317c58a424e3D",
-    "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
-  ],
-  "vaultName": "Beefy Alchemix 80ALCX-20WETH Aura Deposit",
+  "vaultName": "Beefy Alchemix 80ALCX-20WETH Aura Deposit Vault",
   "vaultSymbol": "mooAura80ALCX-20WETH",
   "strategist": "0x9e2b6378ee8ad2A4A95Fe481d63CAba8FB0EBBF9",
-  "balancerV3Router": "0x5C6fb490BDFD3246EB0bB062c168DeCAF4bD9FDd",
+  "depositToken": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
   "beefyAddresses": {
     "vaultFactory": "0xC551dDCE8e5E657503Cd67A39713c06F2c0d2e97",
     "keeper": "0x4fED5491693007f0CD49f4614FFC38Ab6A04B619",
@@ -40,9 +36,11 @@
     "vaultOwner": "0x5B6C5363851EC9ED29CB7220C39B44E1dd443992",
     "strategyOwner": "0x1c9270ac5C42E51611d7b97b1004313D52c80293",
     "unirouter": "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-    "auraBooster": "0x7818A1DA7BD1E64c199029E86Ba244a9798eEE10",
+    "auraBooster": "0xA57b8d98dAE62B26Ec3bcC4a365338157060B234",
     "convexBooster": "0xF403C135812408BFbE8713b5A23a04b3D48AAE31",
-    "balancerVault": "0xBA12222222228d8Ba445958a75a0704d566BF2C8"
+    "balancerVault": "0xBA12222222228d8Ba445958a75a0704d566BF2C8",
+    "strategyFactory": "0x52941De3eDE234ae6B8608597440Ac3394C64Ae8",
+    "beefySwapper": "0x0000830DF56616D58976A12D19d283B40e25BEEF"
   },
-  "dryRun": true
+  "dryRun": false
 }
