@@ -604,4 +604,59 @@ async function detectRewardTokens(chainId, stratType, stakingAddress, rewardPool
   return resolveRewardTokens(chainId, rawAddresses);
 }
 
-module.exports = { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, getCurveCoin, suggestRoutes, resolveToken, getProvider, findPoolByLp, detectRewardTokens };
+/**
+ * Fetch ALL coins in a Curve pool by probing indices 0..3 until the call fails.
+ * Returns an array of { index, address, symbol, name, decimals }.
+ */
+async function getAllCurveCoins(chainId, curvePoolAddress) {
+  const coins = [];
+  for (let i = 0; i < 4; i++) {
+    try {
+      const coin = await getCurveCoin(chainId, curvePoolAddress, i);
+      coins.push({ index: i, ...coin });
+    } catch (_) {
+      break; // no more coins at this index
+    }
+  }
+  return coins;
+}
+
+// Minimal ABI to check if BeefySwapper has a route for a given token.
+// BeefySwapper exposes getAmountOut(from, to, amount) as a view function.
+const BEEFY_SWAPPER_ABI = [
+  'function getAmountOut(address fromToken, address toToken, uint256 amountIn) view returns (uint256)',
+];
+
+/**
+ * Check whether BeefySwapper has a registered swap route from depositToken → nativeToken.
+ * Returns { hasRoute: bool, isNative?: bool, amountOut?: string, reason?: string }.
+ */
+async function checkSwapperRoute(chainId, depositToken, swapperAddr, nativeAddr) {
+  if (!swapperAddr || !depositToken || !nativeAddr) {
+    return { hasRoute: false, reason: 'missing addresses' };
+  }
+  // Native token always works — no swap needed
+  if (depositToken.toLowerCase() === nativeAddr.toLowerCase()) {
+    return { hasRoute: true, isNative: true };
+  }
+  const provider = getProvider(chainId);
+  const swapper = new ethers.Contract(
+    ethers.getAddress(swapperAddr),
+    BEEFY_SWAPPER_ABI,
+    provider,
+  );
+  try {
+    // Use 1 token unit (18 decimals) as a probe amount — we only care if it reverts
+    const amt = ethers.parseUnits('1', 18);
+    const out = await swapper.getAmountOut(
+      ethers.getAddress(depositToken),
+      ethers.getAddress(nativeAddr),
+      amt,
+    );
+    return { hasRoute: Number(out) > 0, amountOut: out.toString() };
+  } catch (e) {
+    return { hasRoute: false, reason: e.shortMessage || e.message };
+  }
+}
+
+module.exports = { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, getCurveCoin, getAllCurveCoins, checkSwapperRoute, suggestRoutes, resolveToken, getProvider, findPoolByLp, detectRewardTokens };

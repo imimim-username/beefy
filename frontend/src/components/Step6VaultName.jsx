@@ -9,6 +9,16 @@ const L2_CHAINS = new Set([10, 8453, 42161, 324, 59144, 534352]); // Optimism, B
 
 const L2_NAMES = { 10: 'Optimism', 8453: 'Base', 42161: 'Arbitrum', 324: 'zkSync', 59144: 'Linea', 534352: 'Scroll' };
 
+// localStorage key for address-book (persists across vaults)
+const ADDR_BOOK_KEY = 'beefy_addr_book_v1';
+
+function loadAddrBook() {
+  try { return JSON.parse(localStorage.getItem(ADDR_BOOK_KEY) || '{}'); } catch { return {}; }
+}
+function saveAddrBook(book) {
+  try { localStorage.setItem(ADDR_BOOK_KEY, JSON.stringify(book)); } catch {}
+}
+
 export function Step6VaultName({ form, setForm, onNext, onBack }) {
   const { suggestedName, suggestedSymbol } = buildSuggestions(form);
 
@@ -17,15 +27,25 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
   const isL2 = L2_CHAINS.has(form.chainId);
   const defaultHarvestOnDeposit = form.harvestOnDeposit != null ? form.harvestOnDeposit : isL2;
 
+  // Address book — load once on mount
+  const addrBook = loadAddrBook();
+
   const [name,             setName]             = useState(form.vaultName    || suggestedName);
   const [symbol,           setSymbol]           = useState(form.vaultSymbol  || suggestedSymbol);
-  const [router,           setRouter]           = useState(form.unirouter    || '');
-  const [strategist,       setStrategist]       = useState(form.strategist   || '');
+  const [router,           setRouter]           = useState(form.unirouter    || addrBook.router    || '');
+  const [strategist,       setStrategist]       = useState(form.strategist   || addrBook.strategist || '');
   const [harvestOnDeposit, setHarvestOnDeposit] = useState(defaultHarvestOnDeposit);
 
   const strategistErr = strategist.trim() && !ETH_ADDR_RE.test(strategist.trim());
+  const routerErr     = router.trim()     && !ETH_ADDR_RE.test(router.trim());
 
   function commit() {
+    // Save non-empty addresses to address book for next vault
+    const book = loadAddrBook();
+    if (strategist.trim() && ETH_ADDR_RE.test(strategist.trim())) book.strategist = strategist.trim();
+    if (router.trim()     && ETH_ADDR_RE.test(router.trim()))     book.router     = router.trim();
+    saveAddrBook(book);
+
     setForm(f => ({
       ...f,
       vaultName:        name.trim()       || suggestedName,
@@ -37,7 +57,10 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
     onNext();
   }
 
-  const valid = name.trim().length > 0 && symbol.trim().length > 0 && !strategistErr;
+  const savedStrategist = addrBook.strategist;
+  const savedRouter     = addrBook.router;
+
+  const valid = name.trim().length > 0 && symbol.trim().length > 0 && !strategistErr && !routerErr;
 
   return (
     <PixelBox variant="cyan" style={{ padding: '24px' }}>
@@ -101,6 +124,19 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
           onChange={e => setStrategist(e.target.value)}
           placeholder="0x… (leave blank to use deployer address)"
         />
+        {/* Address book: show remembered address if different from current value */}
+        {savedStrategist && savedStrategist !== strategist.trim() && (
+          <div style={{ marginTop: '4px', fontSize: '6px', color: '#888' }}>
+            Previously used:{' '}
+            <button
+              className="btn btn--sm"
+              style={{ fontSize: '6px', padding: '1px 6px', marginLeft: '4px' }}
+              onClick={() => setStrategist(savedStrategist)}
+            >
+              USE {savedStrategist.slice(0, 10)}…
+            </button>
+          </div>
+        )}
       </Field>
 
       <PixelBox style={{ padding: '10px', marginBottom: '14px' }}>
@@ -115,14 +151,27 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
 
       <Field
         label="DEX Router Override (optional)"
-        hint="Leave blank to use the default router for this network"
+        hint={routerErr ? 'Must be a valid 0x address' : 'Leave blank to use the default router for this network'}
+        hintType={routerErr ? 'error' : ''}
       >
         <input
-          className="pixel-input"
+          className={`pixel-input ${routerErr ? 'error' : router.trim() ? 'ok' : ''}`}
           value={router}
           onChange={e => setRouter(e.target.value)}
           placeholder="0x… (leave blank for default)"
         />
+        {savedRouter && savedRouter !== router.trim() && (
+          <div style={{ marginTop: '4px', fontSize: '6px', color: '#888' }}>
+            Previously used:{' '}
+            <button
+              className="btn btn--sm"
+              style={{ fontSize: '6px', padding: '1px 6px', marginLeft: '4px' }}
+              onClick={() => setRouter(savedRouter)}
+            >
+              USE {savedRouter.slice(0, 10)}…
+            </button>
+          </div>
+        )}
       </Field>
 
       {/* ── harvestOnDeposit toggle ───────────────────────────────────────────── */}

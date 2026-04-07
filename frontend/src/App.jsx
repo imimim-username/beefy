@@ -132,7 +132,7 @@ export default function App() {
           <Step6VaultName form={form} setForm={setForm} onNext={next} onBack={back} />
         )}
         {step === 6 && (
-          <Step7Review form={form} onDryRun={next} onBack={back} />
+          <Step7Review form={form} onDryRun={next} onBack={back} onJumpTo={setStep} />
         )}
         {step === 7 && (
           <StepDeploy form={form} onBack={back} onReset={reset} />

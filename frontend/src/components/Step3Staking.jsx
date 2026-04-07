@@ -62,6 +62,10 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
   const [coinStatus, setCoinStatus] = useState('');
   const [coinMsg,    setCoinMsg]    = useState('');
 
+  // All coins in the Curve pool — fetched once curvePool address is known
+  const [allCoins,        setAllCoins]        = useState([]); // [{ index, address, symbol, name, decimals }]
+  const [coinsLoading,    setCoinsLoading]    = useState(false);
+
   // Staking validation
   const [status, setStatus] = useState('');
   const [msg,    setMsg]    = useState('');
@@ -189,6 +193,29 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedStaking, stratType, poolId, form.chainId]);
 
+  /* ── Fetch ALL coins from Curve pool (for dropdown) ────────────────────────── */
+  useEffect(() => {
+    if (!USES_CURVE_POOL.has(stratType)) return;
+    if (!debouncedCurvePool || debouncedCurvePool.length < 42 || !form.chainId) return;
+    setAllCoins([]);
+    setCoinsLoading(true);
+    api.curveCoins(form.chainId, debouncedCurvePool)
+      .then(res => {
+        if (res.ok && res.coins?.length > 0) {
+          setAllCoins(res.coins);
+          // Auto-update nCoins from actual pool data
+          setNCoins(String(res.coins.length));
+          // If only one option, auto-select it
+          if (res.coins.length === 1 && coinIndex === '') {
+            setCoinIndex('0');
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => setCoinsLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedCurvePool, stratType, form.chainId]);
+
   /* ── Curve coin lookup (convex / curvegauge / stakedao) ────────────────────── */
   useEffect(() => {
     if (!USES_CURVE_POOL.has(stratType)) return;
@@ -215,6 +242,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
     setStakingAddr(''); setPoolId(''); setPendingFn('');
     setCurvePool(''); setCoinIndex(''); setNCoins('2');
     setConvexCoin(null); setCoinStatus(''); setCoinMsg('');
+    setAllCoins([]); setCoinsLoading(false);
     setPidSearching(false); setPidAutoMsg(''); setPidAutoFound(false);
   }
 
@@ -491,40 +519,95 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
           </Field>
 
           <Field
-            label="Coin Index (compound into)"
-            hint={coinMsg || 'Index of the pool coin to swap rewards into (0-based)'}
-            hintType={coinStatus}
+            label="Coin to compound into"
+            hint={
+              coinsLoading ? 'Loading pool coins…' :
+              coinMsg ||
+              (allCoins.length > 0
+                ? 'Select which pool coin to swap rewards into on each harvest'
+                : 'Index of the pool coin to swap rewards into (0-based)')
+            }
+            hintType={coinsLoading ? 'loading' : coinStatus}
           >
-            <input
-              className="pixel-input"
-              type="number"
-              min="0"
-              max="2"
-              placeholder="0"
-              value={coinIndex}
-              onChange={e => { setCoinIndex(e.target.value); setConvexCoin(null); setCoinStatus(''); setCoinMsg(''); }}
-              style={{ width: '80px' }}
-            />
+            {coinsLoading && <Spinner />}
+
+            {/* Dropdown when we have real coin data */}
+            {!coinsLoading && allCoins.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {allCoins.map(coin => (
+                  <label
+                    key={coin.index}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '8px',
+                      cursor: 'pointer', fontSize: '7px',
+                      color: String(coinIndex) === String(coin.index) ? 'var(--white)' : '#aaa',
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="coinIndex"
+                      value={String(coin.index)}
+                      checked={String(coinIndex) === String(coin.index)}
+                      onChange={() => {
+                        setCoinIndex(String(coin.index));
+                        setConvexCoin(null); setCoinStatus(''); setCoinMsg('');
+                      }}
+                    />
+                    <span>
+                      <span style={{ color: 'var(--gold)' }}>{coin.symbol}</span>
+                      {' '}
+                      <span style={{ color: '#888' }}>{coin.address.slice(0, 20)}…</span>
+                      {' '}
+                      <span style={{ color: '#666' }}>(coin {coin.index})</span>
+                      {/* Suggest most-liquid coins (USDC, USDT, WETH, etc.) */}
+                      {['usdc','usdt','weth','dai','frax'].includes(coin.symbol?.toLowerCase()) && (
+                        <span style={{
+                          marginLeft: '6px', fontSize: '6px',
+                          color: 'var(--green)', border: '1px solid var(--green)', padding: '0 3px',
+                        }}>LIQUID</span>
+                      )}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {/* Fallback number input when coins couldn't be loaded */}
+            {!coinsLoading && allCoins.length === 0 && (
+              <input
+                className="pixel-input"
+                type="number"
+                min="0"
+                max="3"
+                placeholder="0"
+                value={coinIndex}
+                onChange={e => { setCoinIndex(e.target.value); setConvexCoin(null); setCoinStatus(''); setCoinMsg(''); }}
+                style={{ width: '80px' }}
+              />
+            )}
           </Field>
 
-          <Field
-            label="Number of Coins in Pool"
-            hint={form.lpInfo?.nCoins ? `Auto-detected ${form.lpInfo.nCoins} coins from LP token` : ''}
-            hintType={form.lpInfo?.nCoins ? 'ok' : ''}
-          >
-            <div style={{ display: 'flex', gap: '10px' }}>
-              {['2', '3'].map(n => (
-                <button
-                  key={n}
-                  onClick={() => setNCoins(n)}
-                  className={`btn ${nCoins === n ? 'btn--gold' : ''}`}
-                  style={{ width: '60px' }}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-          </Field>
+          {/* nCoins — auto-set from allCoins length; show toggle only as fallback */}
+          {allCoins.length === 0 && (
+            <Field
+              label="Number of Coins in Pool"
+              hint={form.lpInfo?.nCoins ? `Auto-detected ${form.lpInfo.nCoins} coins from LP token` : ''}
+              hintType={form.lpInfo?.nCoins ? 'ok' : ''}
+            >
+              <div style={{ display: 'flex', gap: '10px' }}>
+                {['2', '3'].map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setNCoins(n)}
+                    className={`btn ${nCoins === n ? 'btn--gold' : ''}`}
+                    style={{ width: '60px' }}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </Field>
+          )}
         </>
       )}
 

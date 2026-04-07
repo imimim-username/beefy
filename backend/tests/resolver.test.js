@@ -353,3 +353,139 @@ describe('detectRewardTokens — chef (auto-detect not supported)', () => {
     expect(mockContract).not.toHaveBeenCalled();
   });
 });
+
+// ─── 7. getAllCurveCoins ────────────────────────────────────────────────────────
+describe('getAllCurveCoins', () => {
+  afterEach(() => { jest.resetModules(); });
+
+  test('returns all coins until address is zero/undefined', async () => {
+    const mockPool = {
+      coins: jest.fn()
+        .mockResolvedValueOnce('0xCoinA')
+        .mockResolvedValueOnce('0xCoinB')
+        .mockRejectedValueOnce(new Error('index out of range')),
+    };
+    const mockToken = {
+      symbol:   jest.fn().mockResolvedValue('USDC'),
+      name:     jest.fn().mockResolvedValue('USD Coin'),
+      decimals: jest.fn().mockResolvedValue(6),
+    };
+
+    const { getAllCurveCoins } = requireResolver(
+      jest.fn().mockImplementation((addr) => {
+        if (addr === '0xPOOL') return mockPool;
+        return mockToken;
+      })
+    );
+
+    const coins = await getAllCurveCoins(1, '0xPOOL');
+    expect(coins).toHaveLength(2);
+    expect(coins[0].index).toBe(0);
+    expect(coins[1].index).toBe(1);
+    expect(coins[0].symbol).toBe('USDC');
+  });
+
+  test('returns empty array when first coins() call fails', async () => {
+    const mockPool = {
+      coins: jest.fn().mockRejectedValue(new Error('not a curve pool')),
+    };
+
+    const { getAllCurveCoins } = requireResolver(
+      jest.fn().mockImplementation(() => mockPool)
+    );
+
+    const coins = await getAllCurveCoins(1, '0xNOTCURVE');
+    expect(coins).toEqual([]);
+  });
+
+  test('caps at 4 coins maximum', async () => {
+    const mockPool = {
+      coins: jest.fn().mockResolvedValue('0xSomeCoin'),
+    };
+    const mockToken = {
+      symbol:   jest.fn().mockResolvedValue('TKN'),
+      name:     jest.fn().mockResolvedValue('Token'),
+      decimals: jest.fn().mockResolvedValue(18),
+    };
+
+    const { getAllCurveCoins } = requireResolver(
+      jest.fn().mockImplementation((addr) => {
+        if (addr === '0xBIGPOOL') return mockPool;
+        return mockToken;
+      })
+    );
+
+    const coins = await getAllCurveCoins(1, '0xBIGPOOL');
+    expect(coins).toHaveLength(4); // loop stops at i < 4
+  });
+});
+
+// ─── 8. checkSwapperRoute ─────────────────────────────────────────────────────
+describe('checkSwapperRoute', () => {
+  afterEach(() => { jest.resetModules(); });
+
+  const SWAPPER = '0xSWAPPER';
+  const NATIVE  = '0xNATIVE';
+  const DEPOSIT = '0xDEPOSIT';
+
+  function requireResolverWithSwapper(getAmountOutImpl) {
+    jest.resetModules();
+    jest.doMock('ethers', () => ({
+      ethers: {
+        JsonRpcProvider: jest.fn().mockReturnValue({}),
+        Network: { from: jest.fn().mockReturnValue({}) },
+        Contract: jest.fn().mockImplementation(() => ({
+          getAmountOut: getAmountOutImpl,
+        })),
+        getAddress: jest.fn(a => a),
+        ZeroAddress: '0x0000000000000000000000000000000000000000',
+        parseUnits: jest.fn().mockReturnValue(BigInt('1000000000000000000')),
+      },
+    }));
+    jest.doMock('../chains.js', () => ({
+      CHAINS: {
+        1: { id: 1, rpcEnvKey: 'TEST_RPC', rpcFallback: 'http://localhost' },
+      },
+    }));
+    return require('../resolver.js');
+  }
+
+  test('returns isNative:true when depositToken equals nativeToken', async () => {
+    const { checkSwapperRoute } = requireResolverWithSwapper(jest.fn());
+    const result = await checkSwapperRoute(1, NATIVE, SWAPPER, NATIVE);
+    expect(result.hasRoute).toBe(true);
+    expect(result.isNative).toBe(true);
+  });
+
+  test('returns hasRoute:true when getAmountOut returns positive value', async () => {
+    const { checkSwapperRoute } = requireResolverWithSwapper(
+      jest.fn().mockResolvedValue(BigInt('500000000000000000'))
+    );
+    const result = await checkSwapperRoute(1, DEPOSIT, SWAPPER, NATIVE);
+    expect(result.hasRoute).toBe(true);
+  });
+
+  test('returns hasRoute:false when getAmountOut returns zero', async () => {
+    const { checkSwapperRoute } = requireResolverWithSwapper(
+      jest.fn().mockResolvedValue(BigInt('0'))
+    );
+    const result = await checkSwapperRoute(1, DEPOSIT, SWAPPER, NATIVE);
+    expect(result.hasRoute).toBe(false);
+  });
+
+  test('returns hasRoute:false when getAmountOut reverts', async () => {
+    const { checkSwapperRoute } = requireResolverWithSwapper(
+      jest.fn().mockRejectedValue(Object.assign(new Error('revert: no route'), { shortMessage: 'no route registered' }))
+    );
+    const result = await checkSwapperRoute(1, DEPOSIT, SWAPPER, NATIVE);
+    expect(result.hasRoute).toBe(false);
+    expect(result.reason).toBe('no route registered');
+  });
+
+  test('returns hasRoute:false with reason when addresses are missing', async () => {
+    const { checkSwapperRoute } = requireResolverWithSwapper(jest.fn());
+    const result = await checkSwapperRoute(1, null, SWAPPER, NATIVE);
+    expect(result.hasRoute).toBe(false);
+    expect(result.reason).toMatch(/missing/i);
+  });
+});

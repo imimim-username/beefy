@@ -27,6 +27,9 @@ export const api = {
   getTokens:      (chainId)           => req('GET',  `/tokens/${chainId}`),
   addToken:       (chainId, token)    => req('POST', `/tokens/${chainId}`, token),
   removeToken:    (chainId, address)  => req('DELETE',`/tokens/${chainId}/${address}`),
+  checkExistingVault: (chainId, lp)          => req('GET', `/check-existing-vault?chainId=${chainId}&lp=${lp}`),
+  curveCoins:         (chainId, curvePool)    => req('GET', `/curve-coins?chainId=${chainId}&curvePool=${curvePool}`),
+  checkSwapperRoute:  (chainId, depositToken) => req('GET', `/check-swapper-route?chainId=${chainId}&depositToken=${depositToken}`),
   dryRun:         (body)              => req('POST', '/deploy/dryrun', body),
   execute:        (body)              => req('POST', '/deploy/execute', body),
 };

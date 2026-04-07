@@ -6,7 +6,7 @@ const cors    = require('cors');
 const morgan  = require('morgan');
 
 const { CHAINS }      = require('./chains.js');
-const { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, getCurveCoin, suggestRoutes, resolveToken, findPoolByLp, detectRewardTokens } = require('./resolver.js');
+const { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, getCurveCoin, getAllCurveCoins, checkSwapperRoute, suggestRoutes, resolveToken, findPoolByLp, detectRewardTokens } = require('./resolver.js');
 const { dryRun, execute } = require('./deployer.js');
 const registry = require('./tokenRegistry.js');
 
@@ -221,6 +221,117 @@ app.post('/api/tokens/:chainId', (req, res) => {
 app.delete('/api/tokens/:chainId/:address', (req, res) => {
   registry.removeToken(req.params.chainId, req.params.address);
   res.json({ ok: true });
+});
+
+// ── Check for existing Beefy vault + LP health ────────────────────────────────
+// GET /api/check-existing-vault?chainId=10&lp=0x...
+// Calls Beefy public API to detect a duplicate, and DexScreener for TVL/volume.
+const BEEFY_CHAIN_NAME = {
+  1: 'ethereum', 56: 'bsc', 137: 'polygon',
+  42161: 'arbitrum', 10: 'optimism', 8453: 'base',
+  43114: 'avax', 250: 'fantom', 324: 'zksync',
+  59144: 'linea', 534352: 'scroll',
+};
+const DEXSCREENER_CHAIN = {
+  1: 'ethereum', 56: 'bsc', 137: 'polygon',
+  42161: 'arbitrum', 10: 'optimism', 8453: 'base',
+  43114: 'avalanche', 250: 'fantom',
+};
+
+app.get('/api/check-existing-vault', async (req, res) => {
+  const { chainId, lp } = req.query;
+  if (!chainId || !lp) return res.status(400).json({ ok: false, error: 'chainId and lp required' });
+  const cid = Number(chainId);
+  const lpLower = lp.toLowerCase();
+  const result = { ok: true, exists: false, vaults: [], tvl: null, volume24h: null, pairAge: null };
+
+  // ── 1. Check Beefy API for existing vault ───────────────────────────────────
+  try {
+    const beefyRes = await fetch('https://api.beefy.finance/vaults', {
+      signal: AbortSignal.timeout(6000),
+    });
+    if (beefyRes.ok) {
+      const vaults = await beefyRes.json();
+      const chainName = BEEFY_CHAIN_NAME[cid];
+      const matches = vaults.filter(v =>
+        v.chain === chainName &&
+        (v.tokenAddress || '').toLowerCase() === lpLower &&
+        v.status !== 'eol',
+      );
+      if (matches.length > 0) {
+        result.exists = true;
+        result.vaults = matches.map(v => ({
+          id:     v.id,
+          name:   v.name,
+          status: v.status,
+          url:    `https://app.beefy.com/vault/${v.id}`,
+        }));
+      }
+    }
+  } catch (e) {
+    console.warn('Beefy API check failed:', e.message);
+  }
+
+  // ── 2. DexScreener for TVL / volume / age ───────────────────────────────────
+  const dsChain = DEXSCREENER_CHAIN[cid];
+  if (dsChain) {
+    try {
+      const dsRes = await fetch(
+        `https://api.dexscreener.com/latest/dex/pairs/${dsChain}/${lp}`,
+        { signal: AbortSignal.timeout(5000) },
+      );
+      if (dsRes.ok) {
+        const ds = await dsRes.json();
+        const pair = ds?.pairs?.[0];
+        if (pair) {
+          result.tvl        = pair.liquidity?.usd ?? null;
+          result.volume24h  = pair.volume?.h24    ?? null;
+          result.pairAge    = pair.pairCreatedAt  ?? null; // unix ms
+          result.dexName    = pair.dexId          ?? null;
+        }
+      }
+    } catch (e) {
+      console.warn('DexScreener check failed:', e.message);
+    }
+  }
+
+  res.json(result);
+});
+
+// ── List all coins in a Curve pool ─────────────────────────────────────────────
+// GET /api/curve-coins?chainId=1&curvePool=0x...
+app.get('/api/curve-coins', async (req, res) => {
+  const { chainId, curvePool } = req.query;
+  if (!chainId || !curvePool) return res.status(400).json({ ok: false, error: 'chainId and curvePool required' });
+  try {
+    const coins = await getAllCurveCoins(Number(chainId), curvePool);
+    res.json({ ok: true, coins });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Check BeefySwapper route for a deposit token ───────────────────────────────
+// GET /api/check-swapper-route?chainId=10&depositToken=0x...
+app.get('/api/check-swapper-route', async (req, res) => {
+  const { chainId, depositToken } = req.query;
+  if (!chainId || !depositToken) {
+    return res.status(400).json({ ok: false, error: 'chainId and depositToken required' });
+  }
+  const cid = Number(chainId);
+  const chain = CHAINS[cid];
+  if (!chain) return res.status(400).json({ ok: false, error: 'Unknown chainId' });
+
+  const swapperAddr = chain.beefyAddresses?.beefySwapper;
+  const nativeAddr  = chain.nativeToken;
+  if (!swapperAddr) return res.json({ ok: true, hasRoute: null, reason: 'No BeefySwapper configured for this chain' });
+
+  try {
+    const result = await checkSwapperRoute(cid, depositToken, swapperAddr, nativeAddr);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 // ── Deploy: dry-run ───────────────────────────────────────────────────────────

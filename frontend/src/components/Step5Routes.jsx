@@ -151,6 +151,10 @@ function FactoryDepositTokenStep({ form, setForm }) {
   const [customErr,  setCustomErr]    = useState('');
   const useCustom = selected === '__custom__';
 
+  // Live BeefySwapper route check
+  const [routeCheck,        setRouteCheck]        = useState(null); // null | { hasRoute, isNative, amountOut, reason }
+  const [routeCheckLoading, setRouteCheckLoading] = useState(false);
+
   useEffect(() => {
     // Pre-select native token on first render if not already set
     if (!form.depositToken && defaultToken?.address) {
@@ -160,8 +164,22 @@ function FactoryDepositTokenStep({ form, setForm }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Check swapper route whenever selected token changes (skip native and custom)
+  useEffect(() => {
+    if (!selected || selected === '__custom__' || !form.chainId) return;
+    if (isNative(selected)) { setRouteCheck({ hasRoute: true, isNative: true }); return; }
+    setRouteCheck(null);
+    setRouteCheckLoading(true);
+    api.checkSwapperRoute(form.chainId, selected)
+      .then(res => { if (res.ok !== false) setRouteCheck(res); })
+      .catch(() => {})
+      .finally(() => setRouteCheckLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, form.chainId]);
+
   function handleSelect(addr) {
     setSelected(addr);
+    setRouteCheck(null);
     if (addr !== '__custom__') {
       setForm(f => ({ ...f, depositToken: addr }));
     }
@@ -317,14 +335,71 @@ function FactoryDepositTokenStep({ form, setForm }) {
         </div>
       )}
 
-      {/* BeefySwapper verification notice */}
+      {/* BeefySwapper verification notice — live on-chain check */}
       {selected && selected !== '__custom__' && (() => {
         const selToken = allTokens.find(
           t => t.address.toLowerCase() === selected.toLowerCase()
         );
         const sym = selToken?.symbol?.toLowerCase() || '';
-        const isKnown = isNative(selected) || BEEFY_SWAPPER_KNOWN_SYMBOLS.has(sym);
 
+        // While live check is in flight, fall back to symbol heuristic for instant feedback
+        const symbolKnown = isNative(selected) || BEEFY_SWAPPER_KNOWN_SYMBOLS.has(sym);
+
+        if (routeCheckLoading) {
+          return (
+            <div style={{ fontSize: '7px', color: '#888', marginTop: '8px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <Spinner /> Checking BeefySwapper route on-chain…
+            </div>
+          );
+        }
+
+        // Live result available
+        if (routeCheck) {
+          if (routeCheck.isNative || routeCheck.hasRoute === true) {
+            return (
+              <div style={{
+                fontSize: '7px', color: 'var(--green)',
+                border: '1px solid var(--green)',
+                padding: '6px 10px', marginTop: '8px',
+                background: 'rgba(0,255,100,0.04)',
+              }}>
+                {routeCheck.isNative
+                  ? '✓ Wrapped native — BeefySwapper always supports this token. Optimal choice.'
+                  : `✓ BeefySwapper route confirmed on-chain for ${selToken?.symbol || selected.slice(0, 8)}.`}
+              </div>
+            );
+          }
+
+          // hasRoute === false — check if it's a symbol-known token (may just need oracle registration)
+          return (
+            <div style={{
+              fontSize: '7px',
+              color: symbolKnown ? 'var(--gold)' : 'var(--red)',
+              border: `1px solid ${symbolKnown ? 'var(--gold)' : 'var(--red)'}`,
+              padding: '8px 10px', marginTop: '8px',
+              background: symbolKnown ? 'rgba(255,200,0,0.04)' : 'rgba(255,50,50,0.04)',
+            }}>
+              {symbolKnown
+                ? `⚠ BeefySwapper route not confirmed for "${selToken?.symbol || selected.slice(0, 8)}" — this is a commonly-known token so a route likely exists but may need registration. Verify before deploying.`
+                : `⛔ No BeefySwapper route found for this token. If no swap route is registered, the strategy will fail to compound on harvest. Use the wrapped native (${chainInfo.nativeSymbol || 'WETH'}) or contact the Beefy team to register a route.`
+              }
+              {swapperAddr && explorer && (
+                <span>
+                  {' '}
+                  <a
+                    href={`${explorer}/address/${swapperAddr}#readContract`}
+                    target="_blank" rel="noreferrer"
+                    style={{ color: 'var(--green)' }}
+                  >
+                    Inspect BeefySwapper →
+                  </a>
+                </span>
+              )}
+            </div>
+          );
+        }
+
+        // No live result yet (loading just started or chainId missing) — show symbol-based fallback
         if (isNative(selected)) {
           return (
             <div style={{
@@ -337,33 +412,7 @@ function FactoryDepositTokenStep({ form, setForm }) {
             </div>
           );
         }
-
-        return (
-          <div style={{
-            fontSize: '7px',
-            color: isKnown ? 'var(--gold)' : 'var(--red)',
-            border: `1px solid ${isKnown ? 'var(--gold)' : 'var(--red)'}`,
-            padding: '8px 10px', marginTop: '8px',
-            background: isKnown ? 'rgba(255,200,0,0.04)' : 'rgba(255,50,50,0.04)',
-          }}>
-            {isKnown
-              ? `⚠ Non-native deposit token. "${selToken?.symbol || selected.slice(0, 8)}" is a commonly supported token — BeefySwapper likely has a route registered, but verify before deploying.`
-              : `⚠ Non-native deposit token with unknown BeefySwapper support. If BeefySwapper has no registered swap route for this token, the strategy will fail to compound on harvest. Strongly consider using the wrapped native (${chainInfo.nativeSymbol || 'WETH'}) instead, or verify that BeefySwapper has this token registered.`
-            }
-            {swapperAddr && explorer && (
-              <span>
-                {' '}
-                <a
-                  href={`${explorer}/address/${swapperAddr}#readContract`}
-                  target="_blank" rel="noreferrer"
-                  style={{ color: 'var(--green)' }}
-                >
-                  Check BeefySwapper →
-                </a>
-              </span>
-            )}
-          </div>
-        );
+        return null;
       })()}
     </div>
   );

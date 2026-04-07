@@ -92,7 +92,7 @@ The Vite dev server proxies all `/api/` requests to the backend automatically.
 | Step | What you do |
 |------|------------|
 | 1 — Network     | Pick the blockchain (Ethereum, BSC, Polygon, Arbitrum, Base, etc.) |
-| 2 — LP Token    | Paste the LP token address. The tool detects the pool type (Uni-V2/Solidly, Balancer v2/v3, Curve) automatically, and the detected type drives smart suggestions in Step 3. |
+| 2 — LP Token    | Paste the LP token address. The tool detects the pool type (Uni-V2/Solidly, Balancer v2/v3, Curve) automatically. **Duplicate vault check**: if Beefy already has an active vault for this LP, a red banner appears with a link to the existing vault — saving you from doing unnecessary work. **LP health chips**: TVL, 24h volume, and pair age are fetched from DexScreener and shown as colour-coded badges (green ≥ $100K, gold = low). |
 | 3 — Staking     | Choose the strategy type from six options. A **suggestion banner** recommends the correct type based on the LP detected in Step 2 — one click to apply. A **mismatch warning** appears if the selected strategy is incompatible with your LP type. |
 |                 | • **MasterChef** — PancakeSwap, SushiSwap, etc. (needs Pool ID) |
 |                 | • **Gauge** — Velodrome, Aerodrome, Solidly-style gauges |
@@ -100,11 +100,12 @@ The Vite dev server proxies all `/api/` requests to the backend automatically.
 |                 | • **Convex** — Curve LP staked on Convex Finance (Pool ID **auto-detected**; Curve pool **auto-filled** from gauge.pool()) |
 |                 | • **Curve Gauge** — Curve native LiquidityGauge (Curve pool address **auto-filled** from gauge.pool()) |
 |                 | • **StakeDAO** — StakeDAO sd-gauge (no external Minter; CRV distributed via `claim_rewards`) |
+|                 | For Curve/Convex/StakeDAO, the **coin picker** auto-fetches all coins in the pool and presents a labelled dropdown (`0: USDC`, `1: USDT`, etc.) so you never have to guess the coin index. Commonly-liquid coins (USDC, USDT, WETH, DAI) are marked **LIQUID**. |
 | 4 — Rewards     | Reward tokens are **auto-detected** from the staking contract and pre-selected (marked ⚡). Deselect any you don't want, add more by address. Use **▲▼** buttons to reorder — the first token is the primary output and drives fee calculations. |
-| 5 — Deposit Token / Routes | For **factory strategies** (gauge, aura, convex, curvegauge, stakedao): pick the `depositToken` — BeefySwapper handles all reward swaps automatically. Wrapped native is always recommended (green ✓); unknown tokens show a red warning and a link to verify BeefySwapper support. For **chef**: auto-suggested swap routes (reward→native, reward→LP0, reward→LP1). |
-| 6 — Vault Name  | Vault name and moo-token symbol are **auto-suggested** from the LP token's own symbol (e.g. `Beefy 80ALCX-20WETH` / `moo80Alcx20Weth`). `harvestOnDeposit` defaults **true on L2 chains** (Optimism, Base, Arbitrum) where gas is cheap. |
-| 7 — Review      | Full summary of all parameters. Click **DRY-RUN** to test on a forked chain first. |
-| 8 — Deploy      | After reviewing dry-run output, click **DEPLOY FOR REAL** to broadcast. The **beefy-v2 vault JSON** is auto-populated (id, name, assets, addLiquidityUrl, notCorrelated) with a one-click **COPY** button. |
+| 5 — Deposit Token / Routes | For **factory strategies** (gauge, aura, convex, curvegauge, stakedao): pick the `depositToken`. Pool tokens are shown first; chain-specific WETH and USDC are offered as **"Other liquid options"** for routing flexibility. BeefySwapper support is verified **live on-chain** (calls `getAmountOut`) — green ✓ = confirmed route, gold ⚠ = known symbol but unconfirmed, red ✗ = no route detected. For **chef**: auto-suggested swap routes (reward→native, reward→LP0, reward→LP1). |
+| 6 — Vault Name  | Vault name and moo-token symbol are **auto-suggested** from the LP token's own symbol (e.g. `Beefy 80ALCX-20WETH` / `moo80Alcx20Weth`). `harvestOnDeposit` defaults **true on L2 chains** (Optimism, Base, Arbitrum) where gas is cheap. **Address book**: the strategist address and router override are remembered in `localStorage` and pre-filled with a one-click "USE …" chip on subsequent vaults. |
+| 7 — Review      | Full summary of all parameters with **✎ Edit** buttons on each section — click to jump directly to the relevant step without clicking Back repeatedly. Then click **DRY-RUN** to test on a forked chain first. |
+| 8 — Deploy      | After reviewing dry-run output, click **DEPLOY FOR REAL** to broadcast. If the deploy fails, an **actionable error hint** explains the likely cause and links to the relevant step to fix it. The **beefy-v2 vault JSON** is auto-populated (id, name, assets, addLiquidityUrl, notCorrelated) with a one-click **COPY** button. |
 
 > **Session persistence**: The wizard auto-saves your progress to `localStorage`. Refreshing or closing the tab will not lose your work. A "✕ clear & restart" link appears in the header to reset intentionally.
 

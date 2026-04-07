@@ -11,6 +11,24 @@ function Row({ label, value, addr = false }) {
   );
 }
 
+function SectionHeader({ label, onEdit, stepIndex }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderBottom: '1px solid var(--border)', marginBottom: '2px' }}>
+      <span style={{ fontSize: '7px', color: 'var(--gold)', fontWeight: 'bold' }}>{label}</span>
+      {onEdit && (
+        <button
+          className="btn btn--sm"
+          style={{ fontSize: '6px', padding: '1px 8px', color: 'var(--cyan)', borderColor: 'var(--cyan)' }}
+          onClick={() => onEdit(stepIndex)}
+          title={`Jump back to step ${stepIndex + 1} to edit`}
+        >
+          ✎ Edit
+        </button>
+      )}
+    </div>
+  );
+}
+
 function strategyLabel(stratType) {
   return stratType === 'chef'       ? 'MasterChef (Chef LP)'              :
          stratType === 'gauge'      ? 'Gauge / Solidly LP'                :
@@ -21,7 +39,7 @@ function strategyLabel(stratType) {
          stratType || '?';
 }
 
-export function Step7Review({ form, onDryRun, onBack }) {
+export function Step7Review({ form, onDryRun, onBack, onJumpTo }) {
   const chain  = CHAINS_INFO[form.chainId];
   const lp     = form.lpInfo;
   const routes = form.routes || {};
@@ -57,6 +75,7 @@ export function Step7Review({ form, onDryRun, onBack }) {
 
       {/* Basic info */}
       <div className="result-card pixel-box" style={{ marginBottom: '16px' }}>
+        <SectionHeader label="VAULT DETAILS" onEdit={onJumpTo} stepIndex={5} />
         <Row label="Network"      value={chain?.name || form.chainId} />
         <Row label="Strategy"     value={strategyLabel(stratType)} />
         <Row label="Vault Name"   value={form.vaultName} />
@@ -68,6 +87,7 @@ export function Step7Review({ form, onDryRun, onBack }) {
 
       {/* LP / staking info */}
       <div className="result-card pixel-box" style={{ marginBottom: '16px' }}>
+        <SectionHeader label="LP & STAKING" onEdit={onJumpTo} stepIndex={1} />
         <Row label="LP Token"        value={lp?.lpSymbol || '?'} />
         <Row label="LP Address"      value={form.want} addr />
         <Row label="Token 0"         value={lp?.token0?.symbol} />
@@ -123,6 +143,7 @@ export function Step7Review({ form, onDryRun, onBack }) {
 
       {/* Routes */}
       <div className="result-card pixel-box" style={{ marginBottom: '16px' }}>
+        <SectionHeader label="REWARDS & ROUTES" onEdit={onJumpTo} stepIndex={3} />
         <div className="result-card__row">
           <div className="result-card__key">Reward Tokens</div>
           <div className="result-card__value">

@@ -77,6 +77,71 @@ function useCopyToClipboard() {
   return [copied, copy];
 }
 
+// ─── actionable error parser ──────────────────────────────────────────────────
+// Maps common deploy revert reasons to human-readable guidance + the wizard step to fix it.
+const ERROR_HINTS = [
+  {
+    patterns: [/ProxyCreated event not found/i, /strategy address/i],
+    hint: 'The StrategyFactory transaction succeeded but the proxy address could not be read. This is usually an RPC issue — try again.',
+    step: null,
+  },
+  {
+    patterns: [/wrong lp/i, /lp token/i, /lptoken mismatch/i, /stakingToken/i],
+    hint: 'The staking contract LP token does not match the LP you entered in Step 2. Go back to Step 3 and verify the staking address and pool ID.',
+    step: 2,
+  },
+  {
+    patterns: [/invalid pool/i, /pool not found/i, /poolInfo/i],
+    hint: 'The pool ID does not exist in this staking contract. Go back to Step 3 and check the pool ID.',
+    step: 2,
+  },
+  {
+    patterns: [/DEPLOYER_PK/i, /private key/i, /signer/i],
+    hint: 'No deployer private key configured. Set DEPLOYER_PK in your .env file and restart the backend.',
+    step: null,
+  },
+  {
+    patterns: [/insufficient funds/i, /gas/i],
+    hint: 'Deployer wallet has insufficient funds for gas. Top up your deployer wallet and try again.',
+    step: null,
+  },
+  {
+    patterns: [/nonce/i, /replacement fee too low/i],
+    hint: 'Transaction nonce conflict. Wait a moment and try again, or reset the nonce in your wallet.',
+    step: null,
+  },
+  {
+    patterns: [/route/i, /swap/i, /BeefySwapper/i],
+    hint: 'A swap route is not configured in BeefySwapper. Go back to Step 5 and choose a deposit token with a registered route, or ask the Beefy team to add the route.',
+    step: 4,
+  },
+  {
+    patterns: [/coin/i, /coinIndex/i, /nCoins/i],
+    hint: 'Curve coin index or pool coin count is wrong. Go back to Step 3 and verify the coin index and nCoins values.',
+    step: 2,
+  },
+  {
+    patterns: [/harvest/i, /compound/i],
+    hint: 'The harvest simulation failed. Check your reward token and route configuration in Steps 4 and 5.',
+    step: 3,
+  },
+  {
+    patterns: [/vault factory/i, /strategyFactory/i, /factory/i],
+    hint: 'StrategyFactory contract call failed. This chain may not support this strategy type, or the factory address is wrong.',
+    step: null,
+  },
+];
+
+function parseDeployError(errorMsg) {
+  if (!errorMsg) return null;
+  for (const { patterns, hint, step } of ERROR_HINTS) {
+    if (patterns.some(p => p.test(errorMsg))) {
+      return { hint, step };
+    }
+  }
+  return null;
+}
+
 // ─── small helpers ────────────────────────────────────────────────────────────
 
 function Code({ children }) {
@@ -865,19 +930,32 @@ export function StepDeploy({ form, dryResult, onBack, onReset }) {
         </div>
       )}
 
-      {/* Error display */}
-      {error && (
-        <PixelBox variant="red" style={{ padding: '12px', marginTop: '12px' }}>
-          <div style={{ fontSize: '7px', color: 'var(--red)' }}>
-            ✗ {error}
-          </div>
-          <div style={{ marginTop: '8px' }}>
-            <button className="btn btn--sm" onClick={() => { setError(''); setPhase('idle'); }}>
-              DISMISS
-            </button>
-          </div>
-        </PixelBox>
-      )}
+      {/* Error display — with actionable hint where possible */}
+      {error && (() => {
+        const parsed = parseDeployError(error);
+        return (
+          <PixelBox variant="red" style={{ padding: '12px', marginTop: '12px' }}>
+            <div style={{ fontSize: '7px', color: 'var(--red)', marginBottom: '6px' }}>
+              ✗ {error}
+            </div>
+            {parsed && (
+              <div style={{ fontSize: '7px', color: 'var(--gold)', borderTop: '1px solid var(--border)', paddingTop: '6px', marginTop: '4px', lineHeight: '1.7' }}>
+                💡 <strong>What to do:</strong> {parsed.hint}
+                {parsed.step != null && (
+                  <span style={{ marginLeft: '6px', color: 'var(--cyan)', border: '1px solid var(--cyan)', padding: '0 4px', fontSize: '6px' }}>
+                    → Step {parsed.step + 1}
+                  </span>
+                )}
+              </div>
+            )}
+            <div style={{ marginTop: '8px' }}>
+              <button className="btn btn--sm" onClick={() => { setError(''); setPhase('idle'); }}>
+                DISMISS
+              </button>
+            </div>
+          </PixelBox>
+        );
+      })()}
     </PixelBox>
   );
 }
