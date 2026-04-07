@@ -18,7 +18,7 @@
  * beefySwapper      : Beefy universal swapper — handles all reward→native routing
  *                     automatically (replaces manual outputToNativeRoute for Aura vaults)
  *
- * Addresses verified against api.beefy.finance/config/<chain>  (2024-03)
+ * Addresses verified against beefyfinance/beefy-v2 address-book (2026-04)
  */
 const CHAINS = {
   1: {

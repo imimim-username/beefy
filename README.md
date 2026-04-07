@@ -21,25 +21,22 @@ Pick a network → enter LP token address → choose your staking contract → c
 # 1. Clone / navigate to the project
 cd /path/to/beefyFinal
 
-# 2. Install backend dependencies (Hardhat, ethers, express…)
-npm install
+# 2. Install all dependencies (backend + frontend in one step)
+npm run install:all
 
-# 3. Install OpenZeppelin Contracts (needed to compile Solidity)
-npm install @openzeppelin/contracts
-
-# 4. Install frontend dependencies
-cd frontend && npm install && cd ..
-
-# 5. Copy the env template and fill it in
+# 3. Copy the env template and fill it in
 cp .env.example .env
 $EDITOR .env
 ```
+
+> Or install separately: `npm install` (backend) then `cd frontend && npm install` (frontend).
 
 ### .env reference
 
 ```
 DEPLOYER_PK=0xYOUR_PRIVATE_KEY_HERE
 
+RPC_ETH=https://ethereum.publicnode.com
 RPC_BSC=https://bsc-dataseed.binance.org/
 RPC_POLYGON=https://polygon-rpc.com
 RPC_ARBITRUM=https://arb1.arbitrum.io/rpc
@@ -94,13 +91,19 @@ The Vite dev server proxies all `/api/` requests to the backend automatically.
 
 | Step | What you do |
 |------|------------|
-| 1 — Network     | Pick the blockchain (BSC, Polygon, Arbitrum, Base, etc.) |
-| 2 — LP Token    | Paste the LP token address. The tool reads token0/token1 from chain. |
-| 3 — Staking     | Choose **MasterChef** (needs Pool ID) or **Gauge** (Velodrome/Aerodrome). Paste the contract address. |
-| 4 — Rewards     | Select reward tokens from the saved list, or add a new one by address. The list grows per-network as you deploy. |
-| 5 — Routes      | Auto-suggested swap routes (reward→native, reward→LP0, reward→LP1). Edit addresses if needed. |
+| 1 — Network     | Pick the blockchain (Ethereum, BSC, Polygon, Arbitrum, Base, etc.) |
+| 2 — LP Token    | Paste the LP token address. The tool detects the pool type (Uni-V2/Solidly, Balancer v2/v3, Curve) automatically. |
+| 3 — Staking     | Choose the strategy type from six options, then paste the contract address: |
+|                 | • **MasterChef** — PancakeSwap, SushiSwap, etc. (needs Pool ID) |
+|                 | • **Gauge** — Velodrome, Aerodrome, Solidly-style gauges |
+|                 | • **Aura** — Balancer LP staked on Aura Finance (needs Aura Pool ID) |
+|                 | • **Convex** — Curve LP staked on Convex Finance (needs Convex Pool ID + Curve pool) |
+|                 | • **Curve Gauge** — Curve native LiquidityGauge with CRV Minter (needs Curve pool) |
+|                 | • **StakeDAO** — StakeDAO sd-gauge (no external Minter; CRV distributed via `claim_rewards`) |
+| 4 — Rewards     | Select reward tokens from the saved list, or add a new one by address. For Aura vaults enter BAL + AURA. |
+| 5 — Routes      | For chef/gauge: auto-suggested swap routes (reward→native, reward→LP0, reward→LP1). For Aura: pick the `depositToken` used for single-asset liquidity join. |
 | 6 — Vault Name  | Name your vault and moo-token (e.g. `Beefy CAKE-BNB` / `mooCakeBNB`). |
-| 7 — Review      | Full summary. Click **DRY-RUN** to test on a forked chain first. |
+| 7 — Review      | Full summary of all parameters. Click **DRY-RUN** to test on a forked chain first. |
 | 8 — Deploy      | After reviewing dry-run output, click **DEPLOY FOR REAL** to broadcast. |
 
 ---
@@ -244,45 +247,63 @@ the error message — it pinpoints the exact issue. Common failures:
 ```
 beefyFinal/
 ├── backend/
-│   ├── server.js          # Express API server
-│   ├── chains.js          # Network configs + Beefy address book
-│   ├── resolver.js        # On-chain reads via ethers.js
-│   ├── deployer.js        # Orchestrates Hardhat deploy scripts
-│   └── tokenRegistry.js   # Per-network token registry (registry/tokens.json)
+│   ├── server.js          # Express API server (all /api/* routes)
+│   ├── chains.js          # Network configs + Beefy address book (8 chains)
+│   ├── resolver.js        # On-chain reads via ethers.js (LP detection, validation)
+│   ├── deployer.js        # Orchestrates Hardhat deploy scripts (dry-run + live)
+│   └── tokenRegistry.js   # Per-network reward token registry (registry/tokens.json)
 │
 ├── contracts/
-│   ├── BeefyVaultV7.sol                     # Vault ERC-20
-│   ├── interfaces/                          # IUniswapRouterETH, IGauge, IMasterChef, IBeefyVaultV7
-│   ├── utils/StratFeeManager.sol            # Fee management base
+│   ├── BeefyVaultV7.sol                     # Vault ERC-20 (reference only — deployed via factory)
+│   ├── interfaces/                          # IAuraBooster, IBalancerVault, IConvexBooster,
+│   │                                        # ICurveLiquidityGauge, ICurvePool, IGauge,
+│   │                                        # IMasterChef, ISolidlyRouter, IUniswapRouterETH,
+│   │                                        # IBeefyVaultV7, IBalancerV3Router
+│   ├── utils/StratFeeManager.sol            # Fee management base contract
 │   └── strategies/
-│       ├── StrategyCommonChefLP.sol         # MasterChef strategy
-│       └── StrategyCommonGaugeLP.sol        # Gauge/Solidly strategy
+│       ├── StrategyCommonChefLP.sol         # MasterChef-style farms
+│       ├── StrategyCommonGaugeLP.sol        # Solidly/Velodrome gauge farms
+│       ├── StrategyCurveConvexLP.sol        # Curve LP via Convex Finance
+│       ├── StrategyCommonCurveLP.sol        # Curve native gauge + StakeDAO
+│       └── StrategyAuraLP.sol               # ⚠ DEPRECATED — use StrategyBalancerV3 via factory
 │
 ├── scripts/
-│   ├── deploy_chef.cjs    # Hardhat script for chef deploy
-│   └── deploy_gauge.cjs   # Hardhat script for gauge deploy
+│   ├── deploy_chef.cjs        # MasterChef vault deploy
+│   ├── deploy_gauge.cjs       # Gauge vault deploy
+│   ├── deploy_aura.cjs        # Aura vault (uses StrategyFactory + StrategyBalancerV3)
+│   ├── deploy_convex.cjs      # Convex vault deploy
+│   ├── deploy_curvegauge.cjs  # Curve native gauge deploy (minterEnabled=true)
+│   ├── deploy_stakedao.cjs    # StakeDAO gauge deploy (minterEnabled=false)
+│   └── _deploy_params.json    # Written at runtime by deployer.js (not committed)
+│
+├── solPatch/
+│   └── StrategyAuraLP_flat.sol  # Flattened for Etherscan verification (regenerate after changes)
 │
 ├── registry/
-│   └── tokens.json        # Persisted reward token list (per chain)
+│   └── tokens.json        # Persisted reward token list (per chain, grows with each deploy)
+│
+├── context/
+│   └── SESSION_CONTEXT.md # Project context for resuming work across sessions
 │
 ├── frontend/
 │   └── src/
-│       ├── App.jsx                          # 8-step wizard
-│       ├── chainInfo.js                     # Frontend chain metadata
-│       ├── api/client.js                    # API wrappers
+│       ├── App.jsx                          # 8-step wizard router
+│       ├── chainInfo.js                     # Frontend chain metadata (mirror of chains.js)
+│       ├── api/client.js                    # API call wrappers
 │       ├── hooks/useDebounce.js
 │       ├── styles/global.css                # SNES pixel theme
 │       └── components/
-│           ├── Step1Network.jsx
-│           ├── Step2LP.jsx
-│           ├── Step3Staking.jsx
-│           ├── Step4Rewards.jsx
-│           ├── Step5Routes.jsx
-│           ├── Step6VaultName.jsx
-│           ├── Step7Review.jsx
-│           └── StepDeploy.jsx
+│           ├── Step1Network.jsx             # Chain selection
+│           ├── Step2LP.jsx                  # LP token + type detection
+│           ├── Step3Staking.jsx             # Strategy type + staking contract
+│           ├── Step4Rewards.jsx             # Reward token selection
+│           ├── Step5Routes.jsx              # Swap routes / Aura depositToken
+│           ├── Step6VaultName.jsx           # Vault + moo-token naming
+│           ├── Step7Review.jsx              # Full parameter review
+│           ├── StepDeploy.jsx               # Dry-run → live deploy + post-deploy checklist
+│           └── PixelBox.jsx                 # Shared UI primitives
 │
-├── hardhat.config.cjs
+├── hardhat.config.cjs     # Solidity 0.8.28, EVM=paris, optimizer 200 runs
 ├── package.json
 ├── .env.example
 └── .gitignore
@@ -296,15 +317,20 @@ beefyFinal/
 |--------|------|-------------|
 | GET  | `/health` | Server health + supported chain IDs |
 | GET  | `/api/chains` | List of supported networks |
-| GET  | `/api/resolve-lp?chainId=56&lp=0x…` | Read LP token0/token1 from chain |
+| GET  | `/api/resolve-lp?chainId=56&lp=0x…` | Detect LP type (Uni-V2/Solidly/Balancer/Curve) and read constituent tokens |
 | GET  | `/api/validate-chef?chainId=56&chef=0x…&poolId=1` | Validate MasterChef + poolId |
-| GET  | `/api/validate-gauge?chainId=10&gauge=0x…` | Validate Gauge contract |
-| POST | `/api/suggest-routes` | Auto-suggest swap routes |
-| GET  | `/api/resolve-token?chainId=56&address=0x…` | Resolve token symbol/name/decimals |
-| GET  | `/api/tokens/:chainId` | Get saved reward tokens |
+| GET  | `/api/validate-gauge?chainId=10&gauge=0x…` | Validate Solidly/Velodrome gauge |
+| GET  | `/api/validate-aura?chainId=1&booster=0x…&pid=277` | Validate Aura Booster pool ID |
+| GET  | `/api/validate-convex?chainId=1&booster=0x…&pid=123` | Validate Convex Booster pool ID |
+| GET  | `/api/validate-curvegauge?chainId=1&gauge=0x…` | Validate Curve native LiquidityGauge |
+| GET  | `/api/validate-stakedao?chainId=1&gauge=0x…` | Validate StakeDAO gauge |
+| GET  | `/api/curve-coin?chainId=1&curvePool=0x…&coinIndex=0` | Resolve Curve pool coin by index |
+| POST | `/api/suggest-routes` | Auto-suggest swap routes (body: `{chainId, rewardToken, token0, token1}`) |
+| GET  | `/api/resolve-token?chainId=56&address=0x…` | Resolve ERC-20 symbol/name/decimals |
+| GET  | `/api/tokens/:chainId` | Get saved reward tokens for a chain |
 | POST | `/api/tokens/:chainId` | Save a new reward token |
 | DELETE | `/api/tokens/:chainId/:address` | Remove a reward token |
-| POST | `/api/deploy/dryrun` | Fork chain + deploy (no real funds) |
+| POST | `/api/deploy/dryrun` | Fork chain + deploy (no real funds, discarded after run) |
 | POST | `/api/deploy/execute` | Deploy on live network |
 
 ---
@@ -315,21 +341,36 @@ A Beefy vault consists of **two contracts**:
 
 1. **BeefyVaultV7** (ERC-20) — Users deposit their LP tokens, receive proportional "moo-tokens". The vault holds user balances and calls into the strategy.
 
-2. **Strategy contract** — Does all the yield work: stakes LP into the farm, calls `harvest()` to claim rewards, swaps them back into more LP (compounding), re-stakes. Two variants:
-   - `StrategyCommonChefLP` — for MasterChef-style farms (PancakeSwap, SushiSwap, etc.)
-   - `StrategyCommonGaugeLP` — for Gauge-style farms (Velodrome, Aerodrome, Curve, etc.)
+2. **Strategy contract** — Does all the yield work: stakes LP into the farm, calls `harvest()` to claim rewards, swaps them back into more LP (compounding), re-stakes.
+
+This tool supports six strategy types:
+
+| Strategy type | Contract | Harvest source |
+|---|---|---|
+| `chef` | `StrategyCommonChefLP` | MasterChef farms (PancakeSwap, SushiSwap…) |
+| `gauge` | `StrategyCommonGaugeLP` | Solidly/Velodrome/Aerodrome gauges |
+| `aura` | Beefy's `StrategyBalancerV3` (via StrategyFactory) | Aura Finance — BAL + AURA rewards |
+| `convex` | `StrategyCurveConvexLP` | Convex Finance — CRV + CVX rewards |
+| `curvegauge` | `StrategyCommonCurveLP` (minterEnabled=true) | Curve native LiquidityGauge — CRV via Minter |
+| `stakedao` | `StrategyCommonCurveLP` (minterEnabled=false) | StakeDAO gauge — CRV + SDT via `claim_rewards` |
+
+> **Aura vaults** use Beefy's official audited `StrategyBalancerV3` cloned via `StrategyFactory` — no custom strategy contract is deployed. This is required for Beefy to accept the vault listing.
 
 The strategy exposes `deposit()` / `withdraw()` / `harvest()` to the vault and takes a small fee on each harvest (split between Beefy treasury, the strategist, and the harvester caller).
 
-### Swap Routes
+### Swap Routes (chef / gauge)
 
-When the strategy harvests reward tokens, it needs to know how to turn them into LP:
+When a MasterChef or Gauge strategy harvests reward tokens, it needs to know how to turn them into LP:
 
 - **outputToNativeRoute** — reward token → wrapped native (e.g. CAKE → WBNB). Fee split is taken in native.
 - **outputToLp0Route** — reward token → LP token0 (half the remaining rewards)
 - **outputToLp1Route** — reward token → LP token1 (other half)
 
 The tool auto-suggests these routes from on-chain data. You can edit them manually in Step 5.
+
+### Swap Routes (Aura)
+
+Aura vaults use **BeefySwapper** — a Beefy-managed universal aggregator — for all reward→LP swaps. You only need to select a `depositToken` (one of the Balancer pool's underlying tokens) in Step 5; the strategy handles the rest automatically.
 
 ---
 

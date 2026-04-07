@@ -3,7 +3,7 @@
  * Mirrors backend/chains.js but lives in the browser bundle.
  * Keep in sync with chains.js if you add networks.
  *
- * Addresses verified against api.beefy.finance/config/<chain>  (2024-03)
+ * Addresses verified against beefyfinance/beefy-v2 address-book (2026-04)
  */
 export const CHAINS_INFO = {
   1: {

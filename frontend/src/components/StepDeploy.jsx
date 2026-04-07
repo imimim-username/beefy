@@ -143,6 +143,10 @@ function PostDeployChecklist({ result, form }) {
     ? `https://balancer.fi/pools/${network}/v3/${(form.want || '').toLowerCase()}/add-liquidity`
     : 'TODO: pool add-liquidity page URL';
 
+  // strategyTypeId: 'multi-lp' for Aura/Convex/Curve (multi-token pools), 'lp' for standard 2-token pairs
+  const strategyTypeId = (isAura || form.strategyType === 'convex' || form.strategyType === 'curvegauge' || form.strategyType === 'stakedao')
+    ? 'multi-lp' : 'lp';
+
   const vaultJson = JSON.stringify({
     id:                  `TODO-${network}-pool-name`,
     name:                'TODO: e.g. "80ALCX-20WETH"',
@@ -161,17 +165,16 @@ function PostDeployChecklist({ result, form }) {
     platformId,
     assets:              ['TODO_TOKEN0', 'TODO_TOKEN1'],
     risks: {
-      updatedAt:        createdAt,
       complex:          false,
       curated:          false,
       notAudited:       false,
-      notBattleTested:  false,
+      notBattleTested:  true,   // always true for new vaults — Beefy team updates after review
       notCorrelated:    true,
       notTimelocked:    false,
       notVerified:      false,
       synthAsset:       false,
     },
-    strategyTypeId:      'lp',
+    strategyTypeId,
     addLiquidityUrl:     addLiqUrl,
     network,
   }, null, 2);

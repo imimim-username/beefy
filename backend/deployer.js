@@ -64,18 +64,27 @@ function parseResult(stdout) {
 /**
  * @typedef {Object} DeployParams
  * @property {number}   chainId
- * @property {string}   strategyType    'chef' | 'gauge'
+ * @property {string}   strategyType    'chef' | 'gauge' | 'aura' | 'convex' | 'curvegauge' | 'stakedao'
  * @property {string}   want            LP token address
- * @property {string}   staking         MasterChef or Gauge address
- * @property {number}   [poolId]        required for 'chef' strategies
- * @property {string[]} rewardTokens    array of reward token addresses
- * @property {string[][]} outputToNativeRoute
- * @property {string[][]} outputToLp0Route
- * @property {string[][]} outputToLp1Route
+ * @property {string}   staking         MasterChef, Gauge, Aura Booster, or Convex Booster address
+ * @property {number}   [poolId]        required for 'chef', 'aura', 'convex' strategies
+ * @property {string[]} [rewardTokens]  reward token addresses (aura: [BAL, AURA])
+ * @property {string[][]} [outputToNativeRoute]  reward → native (chef/gauge)
+ * @property {string[][]} [outputToLp0Route]     reward → token0 (chef/gauge)
+ * @property {string[][]} [outputToLp1Route]     reward → token1 (chef/gauge)
+ * @property {string}   [outputToNativeRoute]    reward → native (convex/curvegauge/stakedao)
+ * @property {string}   [outputToCoinRoute]      native → Curve coin (convex/curvegauge/stakedao)
+ * @property {string}   [depositToken]           Balancer pool token for single-asset join (aura)
+ * @property {string}   [curvePool]              Curve pool contract address (convex/curvegauge/stakedao)
+ * @property {number}   [coinIndex]              Curve coin index to compound into
+ * @property {number}   [nCoins]                 Number of coins in Curve pool (2 or 3)
+ * @property {boolean}  [minterEnabled]          true for curvegauge, false for stakedao
+ * @property {string}   [minter]                 CRV Minter address (curvegauge only)
  * @property {string}   vaultName       e.g. "Beefy CAKE-BNB"
  * @property {string}   vaultSymbol     e.g. "mooCakeBNB"
  * @property {string}   [unirouter]     override default router
  * @property {boolean}  [isStable]      Solidly stable pair flag (gauge only)
+ * @property {boolean}  [harvestOnDeposit]  call setHarvestOnDeposit(true) after init
  */
 
 /**
