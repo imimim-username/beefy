@@ -42,6 +42,41 @@ const TOKEN_PROVIDER = {
   gauge:      'TODO-provider-id',
 };
 
+// Chain-specific Solidly/Gauge DEX for addLiquidityUrl and platformId
+const GAUGE_DEX_BY_CHAIN = {
+  10:   { platform: 'velodrome', provider: 'velodrome', liqUrl: (lp) => `https://velodrome.finance/liquidity/manage?address=${lp}` },
+  8453: { platform: 'aerodrome', provider: 'aerodrome', liqUrl: (lp) => `https://aerodrome.finance/liquidity/manage?address=${lp}` },
+};
+
+// Chain-specific Chef DEX hints (just for display — user must verify)
+const CHEF_DEX_BY_CHAIN = {
+  56:    { platform: 'pancakeswap', provider: 'pancakeswap' },
+  137:   { platform: 'quickswap',   provider: 'quickswap'   },
+  42161: { platform: 'sushiswap',   provider: 'sushiswap'   },
+  10:    { platform: 'velodrome',   provider: 'velodrome'   },
+};
+
+// Beefy vault JSON id prefix by strategy type (for auto-ID generation)
+const ID_PREFIX = {
+  aura:       'balancerv3',
+  convex:     'convex',
+  curvegauge: 'curve',
+  stakedao:   'stakedao',
+  // gauge and chef: resolved dynamically from chain
+};
+
+// Build a copy-to-clipboard helper (no external deps)
+function useCopyToClipboard() {
+  const [copied, setCopied] = React.useState(false);
+  function copy(text) {
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }
+  return [copied, copy];
+}
+
 // ─── small helpers ────────────────────────────────────────────────────────────
 
 function Code({ children }) {
@@ -128,6 +163,8 @@ function ResultTable({ result }) {
 // ─── post-deploy checklist ────────────────────────────────────────────────────
 
 function PostDeployChecklist({ result, form }) {
+  const [jsonCopied, copyJson] = useCopyToClipboard();
+
   const chain          = CHAINS_INFO[form.chainId] || {};
   const explorer       = chain.blockExplorer || '';
   const network        = NETWORK_SHORTNAME[form.chainId] || 'TODO-network';
@@ -137,25 +174,70 @@ function PostDeployChecklist({ result, form }) {
   const isFactoryProxy = stratFile === null; // all factory strategies auto-verify as proxy
   const flatFile       = stratFile ? `solPatch/${stratFile}_flat.sol` : null;
   const contractFile   = stratFile ? `contracts/strategies/${stratFile}.sol` : null;
-  const platformId     = PLATFORM_ID[form.strategyType]     || 'TODO-platform-id';
-  const tokenProvider  = TOKEN_PROVIDER[form.strategyType]  || 'TODO-provider-id';
+
+  // ── Auto-compute vault JSON fields ──────────────────────────────────────────
+  const lp      = form.lpInfo || {};
+  const tokSyms = [lp.token0?.symbol, lp.token1?.symbol, lp.token2?.symbol].filter(Boolean);
+  const assets  = tokSyms.length > 0 ? tokSyms : ['TODO_TOKEN0', 'TODO_TOKEN1'];
+
+  // Pool slug for id/oracleId: lowercased token symbols joined with dash
+  const poolSlug = tokSyms.map(s => s.toLowerCase()).join('-') || 'pool-name';
+
+  // Platform-specific id prefix
+  const gaugeDex  = GAUGE_DEX_BY_CHAIN[form.chainId];
+  const chefDex   = CHEF_DEX_BY_CHAIN[form.chainId];
+  const idPrefixRaw = form.strategyType === 'gauge'
+    ? (gaugeDex?.platform || 'TODO-platform')
+    : form.strategyType === 'chef'
+    ? (chefDex?.platform || 'TODO-platform')
+    : (ID_PREFIX[form.strategyType] || 'TODO-platform');
+  const autoId   = `${idPrefixRaw}-${network}-${poolSlug}`;
+
+  // Pool display name: from LP symbol if available, else token0-token1
+  const poolName  = lp.lpSymbol || tokSyms.join('-') || 'TODO Pool Name';
+
+  // platformId and tokenProviderId
+  const platformId    = form.strategyType === 'gauge'
+    ? (gaugeDex?.platform    || PLATFORM_ID[form.strategyType]    || 'TODO-platform-id')
+    : form.strategyType === 'chef'
+    ? (chefDex?.platform     || PLATFORM_ID[form.strategyType]    || 'TODO-platform-id')
+    : (PLATFORM_ID[form.strategyType]    || 'TODO-platform-id');
+  const tokenProvider = form.strategyType === 'gauge'
+    ? (gaugeDex?.provider    || TOKEN_PROVIDER[form.strategyType] || 'TODO-provider-id')
+    : form.strategyType === 'chef'
+    ? (chefDex?.provider     || TOKEN_PROVIDER[form.strategyType] || 'TODO-provider-id')
+    : (TOKEN_PROVIDER[form.strategyType] || 'TODO-provider-id');
+
+  // notCorrelated: false for stable/pegged pairs, true for volatile pairs
+  const notCorrelated = lp.isStable === true ? false : true;
 
   const createdAt = result.blockTimestamp || Math.floor(Date.now() / 1000);
-  const addLiqUrl = isAura
-    ? `https://balancer.fi/pools/${network}/v3/${(form.want || '').toLowerCase()}/add-liquidity`
-    : (form.strategyType === 'convex' || form.strategyType === 'curvegauge' || form.strategyType === 'stakedao')
-    ? `https://curve.fi/#/${network}/pools/TODO-pool-name/deposit`
-    : 'TODO: pool add-liquidity page URL';
 
-  // strategyTypeId: 'multi-lp' for Aura/Convex/Curve (multi-token pools), 'lp' for standard 2-token pairs
+  // addLiquidityUrl: best-effort from known DEX patterns
+  let addLiqUrl;
+  if (isAura) {
+    addLiqUrl = `https://balancer.fi/pools/${network}/v3/${(form.want || '').toLowerCase()}/add-liquidity`;
+  } else if (form.strategyType === 'convex' || form.strategyType === 'curvegauge' || form.strategyType === 'stakedao') {
+    // Use the Curve pool address if available for a more specific link
+    const poolAddr = form.curvePool || form.staking;
+    addLiqUrl = poolAddr
+      ? `https://curve.fi/#/${network}/pools/${poolAddr.toLowerCase()}/deposit`
+      : `https://curve.fi/#/${network}/pools/TODO-pool-slug/deposit`;
+  } else if (form.strategyType === 'gauge' && gaugeDex) {
+    addLiqUrl = gaugeDex.liqUrl(form.want || '');
+  } else {
+    addLiqUrl = 'TODO: pool add-liquidity page URL';
+  }
+
+  // strategyTypeId: 'multi-lp' for multi-token pools (Aura/Convex/Curve), 'lp' for standard pairs
   const strategyTypeId = (isAura || form.strategyType === 'convex' || form.strategyType === 'curvegauge' || form.strategyType === 'stakedao')
     ? 'multi-lp' : 'lp';
 
   const vaultJson = JSON.stringify({
-    id:                  `TODO-${network}-pool-name`,
-    name:                'TODO: e.g. "80ALCX-20WETH"',
+    id:                  autoId,
+    name:                poolName,
     type:                'standard',
-    token:               'TODO: same as name',
+    token:               poolName,
     tokenAddress:         form.want,
     tokenDecimals:        18,
     tokenProviderId:      tokenProvider,
@@ -163,17 +245,17 @@ function PostDeployChecklist({ result, form }) {
     earnedToken:          form.vaultSymbol,
     earnedTokenAddress:   result.vaultAddress,
     oracle:              'lps',
-    oracleId:            `TODO-${network}-pool-name`,
+    oracleId:            autoId,
     status:              'active',
     createdAt,
     platformId,
-    assets:              ['TODO_TOKEN0', 'TODO_TOKEN1'],
+    assets,
     risks: {
       complex:          false,
       curated:          false,
       notAudited:       false,
       notBattleTested:  true,   // always true for new vaults — Beefy team updates after review
-      notCorrelated:    true,
+      notCorrelated,
       notTimelocked:    false,
       notVerified:      false,
       synthAsset:       false,
@@ -274,31 +356,37 @@ License          : MIT (3)`}</Code>
           → docs.beefy.finance — Vault Testing Procedure
         </a>
         <p style={{ marginTop: '4px', marginBottom: '4px' }}>
-          At minimum, from your deployer wallet while you still own the strategy:
+          From your deployer wallet while you still own the strategy:
         </p>
-        <ul style={{ marginLeft: '14px', lineHeight: '2' }}>
-          <li>Deposit a small amount into the vault</li>
-          <li>Call <Inline>harvest()</Inline> on the strategy and confirm it succeeds</li>
-          <li>Call <Inline>withdraw(amount)</Inline> to confirm withdrawal works</li>
-        </ul>
+        <ol style={{ marginLeft: '14px', lineHeight: '2.2' }}>
+          <li>
+            <strong style={{ color: 'var(--gold)' }}>Deposit</strong> a small amount into the vault
+            {explorer && result.vaultAddress && (
+              <> — <a href={`${explorer}/address/${result.vaultAddress}#writeContract`} target="_blank" rel="noreferrer" style={{ color: 'var(--green)' }}>Vault write contract →</a></>
+            )}
+          </li>
+          <li>
+            <strong style={{ color: 'var(--gold)' }}>Harvest</strong> — call{' '}
+            <Inline>harvest()</Inline> on the <strong>strategy</strong> and verify it succeeds.
+            Then check that <Inline>pricePerFullShare</Inline> on the vault increased.
+            {explorer && result.strategyAddress && (
+              <> — <a href={`${explorer}/address/${result.strategyAddress}#writeContract`} target="_blank" rel="noreferrer" style={{ color: 'var(--green)' }}>Strategy write contract →</a></>
+            )}
+          </li>
+          <li>
+            <strong style={{ color: 'var(--gold)' }}>Withdraw</strong> — call{' '}
+            <Inline>withdraw(amount)</Inline> on the vault and confirm your LP is returned.
+          </li>
+        </ol>
         <p style={{ marginTop: '6px' }}>
-          Also check a recently deployed vault of the same type (e.g. another Balancer V3 + Aura
-          vault) on Etherscan to see what calls the strategist made between initialization and
-          ownership transfer — there may be additional setup calls required for your platform.
+          Also check a recently deployed vault of the same type on the block explorer to see
+          what calls the strategist made between initialization and ownership transfer — some
+          platforms require additional setup calls before harvest works correctly.
         </p>
-        {explorer ? (
-          <a
-            href={`${explorer}/address/${result.vaultAddress}#writeContract`}
-            target="_blank" rel="noreferrer"
-            style={{ color: 'var(--green)', display: 'block', margin: '4px 0' }}
-          >
-            → {explorer}/address/{result.vaultAddress}#writeContract
-          </a>
-        ) : (
-          <Code>{`{blockExplorer}/address/${result.vaultAddress}#writeContract`}</Code>
-        )}
         <p style={{ color: '#f99', marginTop: '6px' }}>
-          ⚠ If any call reverts, stop and fix before proceeding. Use Tenderly to trace reverts.
+          ⚠ If any call reverts, stop and fix before transferring ownership. Use{' '}
+          <a href="https://dashboard.tenderly.co" target="_blank" rel="noreferrer" style={{ color: 'var(--green)' }}>Tenderly</a>{' '}
+          to trace reverts and identify the failing selector.
         </p>
       </CheckStep>
 
@@ -353,36 +441,54 @@ License          : MIT (3)`}</Code>
           <Inline>src/config/vault/{network}.json</Inline> (file is ordered oldest → newest).
         </p>
         <p style={{ marginTop: '6px', marginBottom: '4px' }}>
-          The template below has several fields pre-filled. Replace every{' '}
-          <span style={{ color: '#f88' }}>TODO</span> value:
+          Most fields below are <strong style={{ color: 'var(--green)' }}>auto-populated</strong> from your deploy.
+          Review each value — especially <Inline>id</Inline>, <Inline>name</Inline>, and <Inline>addLiquidityUrl</Inline> —
+          then adjust any that look wrong.
         </p>
-        <Code>{vaultJson}</Code>
+        <div style={{ position: 'relative' }}>
+          <Code>{vaultJson}</Code>
+          <button
+            onClick={() => copyJson(vaultJson)}
+            style={{
+              position: 'absolute', top: '8px', right: '8px',
+              background: jsonCopied ? 'var(--green)' : 'rgba(0,0,0,0.6)',
+              border: `1px solid ${jsonCopied ? 'var(--green)' : 'var(--border)'}`,
+              color: jsonCopied ? '#000' : 'var(--cyan)',
+              cursor: 'pointer', padding: '2px 8px', fontSize: '6px',
+              fontFamily: 'monospace',
+            }}
+          >
+            {jsonCopied ? '✓ COPIED' : 'COPY'}
+          </button>
+        </div>
         <p style={{ marginTop: '6px', marginBottom: '4px' }}>
-          Fields to fill in manually:
+          What to double-check before submitting:
         </p>
         <ul style={{ marginLeft: '14px', lineHeight: '2' }}>
           <li>
-            <Inline>id</Inline> / <Inline>oracleId</Inline> — lowercase kebab-case using token
-            symbols only (no weights), e.g.{' '}
-            <Inline>balancerv3-{network}-alcx-weth</Inline>
+            <Inline>id</Inline> / <Inline>oracleId</Inline> — must be lowercase kebab-case, no token
+            weights (e.g. use <Inline>alcx-weth</Inline> not <Inline>80alcx-20weth</Inline>)
           </li>
           <li>
-            <Inline>name</Inline> / <Inline>token</Inline> — pool display name matching the DEX UI, e.g.{' '}
-            <Inline>80ALCX-20WETH</Inline>
+            <Inline>name</Inline> / <Inline>token</Inline> — match the display name shown in the DEX UI
+          </li>
+          {addLiqUrl.includes('TODO') && (
+            <li>
+              <Inline>addLiquidityUrl</Inline> — fill in the pool's add-liquidity page URL
+            </li>
+          )}
+          <li>
+            <Inline>notCorrelated</Inline> — auto-set to <Inline>{String(!notCorrelated)}</Inline> based on LP stable flag;
+            verify this is correct ({!notCorrelated ? 'stable/pegged pair' : 'volatile pair'})
           </li>
           <li>
-            <Inline>assets</Inline> — symbol array, e.g. <Inline>["ALCX", "WETH"]</Inline>
+            <Inline>tokenDecimals</Inline> — almost always 18, but verify on-chain for unusual tokens
           </li>
-          <li>
-            <Inline>addLiquidityUrl</Inline> — the pool's add-liquidity page on its DEX UI
-          </li>
-          <li>
-            <Inline>notCorrelated</Inline> — <Inline>true</Inline> if assets are unpegged
-            (e.g. ALCX/WETH); <Inline>false</Inline> if pegged (e.g. USDC/USDT)
-          </li>
-          <li>
-            <Inline>tokenDecimals</Inline> — almost always 18, but check on-chain if unsure
-          </li>
+          {(platformId.includes('TODO') || tokenProvider.includes('TODO')) && (
+            <li>
+              <Inline>platformId</Inline> / <Inline>tokenProviderId</Inline> — fill in the correct DEX/platform names
+            </li>
+          )}
         </ul>
         <p style={{ marginTop: '8px' }}>
           PR title convention:{' '}

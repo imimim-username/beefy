@@ -102,13 +102,25 @@ const FACTORY_DESCRIPTIONS = {
 // All strategy types that use the StrategyFactory + BeefySwapper pattern
 const FACTORY_TYPES = new Set(['aura', 'gauge', 'convex', 'curvegauge', 'stakedao']);
 
+// Known major tokens that BeefySwapper commonly has routes for (by lowercase symbol).
+// We can't verify on-chain, but these are standard across Beefy deployments.
+const BEEFY_SWAPPER_KNOWN_SYMBOLS = new Set([
+  'weth', 'wbnb', 'wmatic', 'wavax', 'wftm', 'wop', 'wbase',
+  'usdc', 'usdt', 'dai', 'frax', 'usdc.e', 'usdt.e', 'busd',
+  'wbtc', 'btc.b',
+  'crv', 'cvx', 'bal', 'aura',
+  'op', 'arb',
+]);
+
 // ─── Shared deposit token picker (all factory strategies) ────────────────────
 
 function FactoryDepositTokenStep({ form, setForm }) {
-  const stratType   = form.strategyType;
-  const desc        = FACTORY_DESCRIPTIONS[stratType] || FACTORY_DESCRIPTIONS.aura;
-  const chainInfo   = CHAINS_INFO[form.chainId] || {};
-  const nativeToken = chainInfo.nativeToken || '';
+  const stratType    = form.strategyType;
+  const desc         = FACTORY_DESCRIPTIONS[stratType] || FACTORY_DESCRIPTIONS.aura;
+  const chainInfo    = CHAINS_INFO[form.chainId] || {};
+  const nativeToken  = chainInfo.nativeToken || '';
+  const swapperAddr  = chainInfo.beefyAddresses?.beefySwapper || '';
+  const explorer     = chainInfo.blockExplorer || '';
 
   // Collect pool tokens from lpInfo
   const poolTokens = [];
@@ -244,13 +256,62 @@ function FactoryDepositTokenStep({ form, setForm }) {
       </Field>
 
       {!useCustom && selected && (
-        <div style={{ fontSize: '7px', color: '#aaa' }}>
+        <div style={{ fontSize: '7px', color: '#aaa', marginTop: '4px' }}>
           Selected: <span style={{ color: 'var(--cyan)' }}>{selected}</span>
           {isNative(selected)
             ? ' — strategy will deposit directly without an extra swap ✓'
             : ' — strategy will swap native → this token on each harvest'}
         </div>
       )}
+
+      {/* BeefySwapper verification notice */}
+      {selected && selected !== '__custom__' && (() => {
+        const selToken = [...poolTokens, ...(useCustom ? [] : [])].find(
+          t => t.address.toLowerCase() === selected.toLowerCase()
+        );
+        const sym = selToken?.symbol?.toLowerCase() || '';
+        const isKnown = isNative(selected) || BEEFY_SWAPPER_KNOWN_SYMBOLS.has(sym);
+
+        if (isNative(selected)) {
+          return (
+            <div style={{
+              fontSize: '7px', color: 'var(--green)',
+              border: '1px solid var(--green)',
+              padding: '6px 10px', marginTop: '8px',
+              background: 'rgba(0,255,100,0.04)',
+            }}>
+              ✓ Wrapped native — BeefySwapper always supports this token. Optimal choice.
+            </div>
+          );
+        }
+
+        return (
+          <div style={{
+            fontSize: '7px',
+            color: isKnown ? 'var(--gold)' : 'var(--red)',
+            border: `1px solid ${isKnown ? 'var(--gold)' : 'var(--red)'}`,
+            padding: '8px 10px', marginTop: '8px',
+            background: isKnown ? 'rgba(255,200,0,0.04)' : 'rgba(255,50,50,0.04)',
+          }}>
+            {isKnown
+              ? `⚠ Non-native deposit token. "${selToken?.symbol || selected.slice(0, 8)}" is a commonly supported token — BeefySwapper likely has a route registered, but verify before deploying.`
+              : `⚠ Non-native deposit token with unknown BeefySwapper support. If BeefySwapper has no registered swap route for this token, the strategy will fail to compound on harvest. Strongly consider using the wrapped native (${chainInfo.nativeSymbol || 'WETH'}) instead, or verify that BeefySwapper has this token registered.`
+            }
+            {swapperAddr && explorer && (
+              <span>
+                {' '}
+                <a
+                  href={`${explorer}/address/${swapperAddr}#readContract`}
+                  target="_blank" rel="noreferrer"
+                  style={{ color: 'var(--green)' }}
+                >
+                  Check BeefySwapper →
+                </a>
+              </span>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

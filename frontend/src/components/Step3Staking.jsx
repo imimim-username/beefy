@@ -13,14 +13,22 @@ const STRATEGY_OPTS = [
   { id: 'stakedao',   label: '🟣 STAKEDAO',       desc: 'StakeDAO gauge (sd-gauge)'            },
 ];
 
-// Which LP types match which strategy (null = V2/Solidly, undefined = no check)
-const LP_TYPE_MATCH = {
-  chef:       null,
-  gauge:      null,
-  aura:       'balancer',
-  convex:     'curve',
-  curvegauge: 'curve',
-  stakedao:   'curve',
+// LP type → recommended strategy type(s) — shown as a suggestion banner in the UI
+const LP_TYPE_SUGGESTION = {
+  solidly:  { primary: 'gauge',      label: '⚡ Solidly/Velodrome LP detected — Gauge strategy recommended.' },
+  balancer: { primary: 'aura',       label: '🔷 Balancer LP detected — Aura strategy recommended.' },
+  curve:    { primary: 'curvegauge', label: '〽️ Curve LP detected — Curve Gauge strategy recommended (or Convex / StakeDAO).' },
+  univ2:    { primary: 'chef',       label: '👨‍🍳 Uni-V2 LP detected — MasterChef strategy recommended.' },
+};
+
+// Which actual LP types are COMPATIBLE with each strategy (array = any match is OK)
+const LP_TYPE_COMPATIBLE = {
+  chef:       ['univ2', 'solidly'],   // chef works with standard AMM LPs
+  gauge:      ['solidly', 'univ2'],   // gauge works with AMM LPs (Velodrome is solidly-type)
+  aura:       ['balancer'],
+  convex:     ['curve'],
+  curvegauge: ['curve'],
+  stakedao:   ['curve'],
 };
 
 // Strategies that use Curve pool fields (deposit token is a Curve coin)
@@ -210,10 +218,13 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
     setPidSearching(false); setPidAutoMsg(''); setPidAutoFound(false);
   }
 
-  /* ── LP type mismatch warning ─────────────────────────────────────────────── */
-  const expectedLpType = LP_TYPE_MATCH[stratType];
-  const actualLpType   = form.lpInfo?.lpType || null;
-  const lpMismatch     = expectedLpType !== undefined && expectedLpType !== actualLpType;
+  /* ── LP type suggestion + mismatch warning ────────────────────────────────── */
+  const actualLpType    = form.lpInfo?.lpType || null;
+  const suggestion      = actualLpType ? LP_TYPE_SUGGESTION[actualLpType] : null;
+  const compatibleTypes = LP_TYPE_COMPATIBLE[stratType] || [];
+  // Only warn if we know the LP type AND it's incompatible with the chosen strategy
+  const lpMismatch      = actualLpType !== null && compatibleTypes.length > 0
+    && !compatibleTypes.includes(actualLpType);
 
   /* ── availability guards ──────────────────────────────────────────────────── */
   const chainHasAura   = !!chain?.beefyAddresses?.auraBooster;
@@ -280,6 +291,35 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
           Which contract stakes this LP token and earns rewards?
         </div>
       </div>
+
+      {/* LP type suggestion banner */}
+      {suggestion && (
+        <div style={{
+          fontSize: '7px',
+          color: 'var(--cyan)',
+          border: '1px solid var(--cyan)',
+          padding: '8px 12px',
+          marginBottom: '12px',
+          background: 'rgba(0,255,200,0.06)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+        }}>
+          <span style={{ flex: 1 }}>{suggestion.label}</span>
+          {stratType !== suggestion.primary && (
+            <button
+              className="btn btn--sm"
+              onClick={() => handleTypeChange(suggestion.primary)}
+              style={{ fontSize: '6px', padding: '2px 8px' }}
+            >
+              USE {suggestion.primary.toUpperCase()}
+            </button>
+          )}
+          {stratType === suggestion.primary && (
+            <span style={{ color: 'var(--green)', fontSize: '6px' }}>✓ selected</span>
+          )}
+        </div>
+      )}
 
       {/* Strategy type picker — 3×2 grid */}
       <div style={{ marginBottom: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>

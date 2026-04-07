@@ -118,6 +118,17 @@ export function Step4Rewards({ form, setForm, onNext, onBack }) {
     });
   }
 
+  function moveToken(index, direction) {
+    setSelected(prev => {
+      const next = [...prev];
+      const swapWith = index + direction;
+      if (swapWith < 0 || swapWith >= next.length) return prev;
+      [next[index], next[swapWith]] = [next[swapWith], next[index]];
+      setForm(f => ({ ...f, rewardTokens: next }));
+      return next;
+    });
+  }
+
   async function addCustomToken() {
     if (!resolvedToken) return;
     await api.addToken(form.chainId, resolvedToken);
@@ -236,10 +247,40 @@ export function Step4Rewards({ form, setForm, onNext, onBack }) {
           <div className="pixel-label">Selected ({selected.length})</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
             {selected.map((t, i) => (
-              <span key={t.address} className={`tag ${i === 0 ? 'tag--gold' : 'tag--cyan'}`}>
+              <span
+                key={t.address}
+                className={`tag ${i === 0 ? 'tag--gold' : 'tag--cyan'}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+              >
                 {i === 0 ? '⭐ ' : ''}{t.symbol}
                 {isAutoDetected(t.address) && (
                   <span style={{ fontSize: '5px', marginLeft: '2px', opacity: 0.8 }}>⚡</span>
+                )}
+                {/* Reorder buttons */}
+                {selected.length > 1 && (
+                  <span style={{ display: 'inline-flex', flexDirection: 'column', marginLeft: '3px', gap: '1px' }}>
+                    <button
+                      title="Move up (make primary)"
+                      onClick={() => moveToken(i, -1)}
+                      disabled={i === 0}
+                      style={{
+                        background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer',
+                        color: i === 0 ? 'rgba(255,255,255,0.2)' : 'inherit',
+                        padding: 0, fontSize: '7px', lineHeight: 1,
+                      }}
+                    >▲</button>
+                    <button
+                      title="Move down"
+                      onClick={() => moveToken(i, 1)}
+                      disabled={i === selected.length - 1}
+                      style={{
+                        background: 'none', border: 'none',
+                        cursor: i === selected.length - 1 ? 'default' : 'pointer',
+                        color: i === selected.length - 1 ? 'rgba(255,255,255,0.2)' : 'inherit',
+                        padding: 0, fontSize: '7px', lineHeight: 1,
+                      }}
+                    >▼</button>
+                  </span>
                 )}
                 <button
                   onClick={() => toggleToken(t)}
@@ -250,7 +291,7 @@ export function Step4Rewards({ form, setForm, onNext, onBack }) {
           </div>
           {selected.length > 1 && (
             <div style={{ fontSize: '7px', color: 'var(--border)', marginTop: '8px' }}>
-              ⭐ = primary output (used for swap routes) &nbsp;·&nbsp; ⚡ = auto-detected
+              ⭐ = primary output (used for swap routes) &nbsp;·&nbsp; ⚡ = auto-detected &nbsp;·&nbsp; ▲▼ = reorder
             </div>
           )}
         </PixelBox>
