@@ -92,19 +92,21 @@ The Vite dev server proxies all `/api/` requests to the backend automatically.
 | Step | What you do |
 |------|------------|
 | 1 — Network     | Pick the blockchain (Ethereum, BSC, Polygon, Arbitrum, Base, etc.) |
-| 2 — LP Token    | Paste the LP token address. The tool detects the pool type (Uni-V2/Solidly, Balancer v2/v3, Curve) automatically. |
-| 3 — Staking     | Choose the strategy type from six options, then paste the contract address: |
+| 2 — LP Token    | Paste the LP token address. The tool detects the pool type (Uni-V2/Solidly, Balancer v2/v3, Curve) automatically, and the detected type drives smart suggestions in Step 3. |
+| 3 — Staking     | Choose the strategy type from six options. A **suggestion banner** recommends the correct type based on the LP detected in Step 2 — one click to apply. A **mismatch warning** appears if the selected strategy is incompatible with your LP type. |
 |                 | • **MasterChef** — PancakeSwap, SushiSwap, etc. (needs Pool ID) |
 |                 | • **Gauge** — Velodrome, Aerodrome, Solidly-style gauges |
-|                 | • **Aura** — Balancer LP staked on Aura Finance (Pool ID **auto-detected** from booster scan) |
-|                 | • **Convex** — Curve LP staked on Convex Finance (Pool ID **auto-detected**; Curve pool **auto-filled** from gauge) |
+|                 | • **Aura** — Balancer LP staked on Aura Finance (Pool ID **auto-detected** by scanning booster) |
+|                 | • **Convex** — Curve LP staked on Convex Finance (Pool ID **auto-detected**; Curve pool **auto-filled** from gauge.pool()) |
 |                 | • **Curve Gauge** — Curve native LiquidityGauge (Curve pool address **auto-filled** from gauge.pool()) |
 |                 | • **StakeDAO** — StakeDAO sd-gauge (no external Minter; CRV distributed via `claim_rewards`) |
-| 4 — Rewards     | Reward tokens are **auto-detected** from the staking contract and pre-selected. You can add more by address or deselect any you don't want. Auto-detected tokens are marked with ⚡. |
-| 5 — Routes      | For **chef**: auto-suggested swap routes (reward→native, reward→LP0, reward→LP1). For **all factory strategies** (gauge, aura, convex, curvegauge, stakedao): pick the `depositToken` — BeefySwapper handles all reward swaps automatically. |
-| 6 — Vault Name  | Name your vault and moo-token (e.g. `Beefy CAKE-BNB` / `mooCakeBNB`). |
+| 4 — Rewards     | Reward tokens are **auto-detected** from the staking contract and pre-selected (marked ⚡). Deselect any you don't want, add more by address. Use **▲▼** buttons to reorder — the first token is the primary output and drives fee calculations. |
+| 5 — Deposit Token / Routes | For **factory strategies** (gauge, aura, convex, curvegauge, stakedao): pick the `depositToken` — BeefySwapper handles all reward swaps automatically. Wrapped native is always recommended (green ✓); unknown tokens show a red warning and a link to verify BeefySwapper support. For **chef**: auto-suggested swap routes (reward→native, reward→LP0, reward→LP1). |
+| 6 — Vault Name  | Vault name and moo-token symbol are **auto-suggested** from the LP token's own symbol (e.g. `Beefy 80ALCX-20WETH` / `moo80Alcx20Weth`). `harvestOnDeposit` defaults **true on L2 chains** (Optimism, Base, Arbitrum) where gas is cheap. |
 | 7 — Review      | Full summary of all parameters. Click **DRY-RUN** to test on a forked chain first. |
-| 8 — Deploy      | After reviewing dry-run output, click **DEPLOY FOR REAL** to broadcast. |
+| 8 — Deploy      | After reviewing dry-run output, click **DEPLOY FOR REAL** to broadcast. The **beefy-v2 vault JSON** is auto-populated (id, name, assets, addLiquidityUrl, notCorrelated) with a one-click **COPY** button. |
+
+> **Session persistence**: The wizard auto-saves your progress to `localStorage`. Refreshing or closing the tab will not lose your work. A "✕ clear & restart" link appears in the header to reset intentionally.
 
 ---
 
@@ -142,17 +144,17 @@ Leave **Constructor Arguments** blank — strategies use `initialize()`, not a c
 
 ---
 
-### Step 2 — Make a Small Test Deposit
+### Step 2 — Test the Vault (Before Transferring Ownership)
 
-Beefy requires at least one real deposit before reviewing the PR, to confirm the vault accepts funds.
+Test all critical paths **before** transferring ownership — after transfer, any fixes require a timelocked multisig. The UI provides direct write-contract links for both vault and strategy after deployment.
 
-1. Go to the vault on the block explorer → **Write Contract**
-2. Connect your wallet, approve the LP token spend
-3. Call `deposit(amount)` with a small amount (a few dollars worth is enough)
+1. **Deposit** — Call `deposit(amount)` on the vault with a small amount (a few dollars worth).
+2. **Harvest** — Call `harvest()` on the **strategy**. Confirm it succeeds, then verify `pricePerFullShare` on the vault increased.
+3. **Withdraw** — Call `withdraw(amount)` on the vault and confirm your LP is returned.
 
-If the deposit reverts, trace it on [Tenderly](https://dashboard.tenderly.co) before proceeding.
-The most common cause is a missing `beforeDeposit()` function in the strategy — Beefy's vault
-factory calls it on every deposit. If it is absent, redeploy with the function added.
+If any call reverts, trace it on [Tenderly](https://dashboard.tenderly.co) before proceeding. Common causes:
+- Missing `beforeDeposit()` in strategy — Beefy's vault factory calls it on every deposit
+- BeefySwapper has no registered swap route for the selected depositToken — try the wrapped native instead
 
 ---
 
@@ -186,7 +188,7 @@ deployer wallet. The PR will fail with `"Pool X should update strat owner"` unti
 Fork [beefyfinance/beefy-v2](https://github.com/beefyfinance/beefy-v2) and add your vault entry
 to the **top** of the array in `src/config/vault/{network}.json`.
 
-The UI generates a pre-filled template after deployment. Here is the full schema with notes:
+The UI generates a **fully auto-populated template** after deployment — `id`, `oracleId`, `name`, `token`, `assets`, `addLiquidityUrl`, and `notCorrelated` are all filled from on-chain data. A **COPY** button copies the JSON directly. Review the values and adjust any that need refinement (especially `id` if token symbol formatting differs from Beefy's convention). Here is the full schema with notes:
 
 ```jsonc
 {

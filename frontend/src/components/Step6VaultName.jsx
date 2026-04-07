@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { PixelBox, Field } from './PixelBox.jsx';
+import { buildSuggestions } from '../utils/vaultName.js';
 
 const ETH_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 
@@ -7,48 +8,6 @@ const ETH_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 const L2_CHAINS = new Set([10, 8453, 42161, 324, 59144, 534352]); // Optimism, Base, Arbitrum, zkSync, Linea, Scroll
 
 const L2_NAMES = { 10: 'Optimism', 8453: 'Base', 42161: 'Arbitrum', 324: 'zkSync', 59144: 'Linea', 534352: 'Scroll' };
-
-// Strip Solidly AMM prefixes from LP symbols so the vault name is clean.
-// "sAMM-USDC/WETH" → "USDC-WETH"   "vAMM-OP/WETH" → "OP-WETH"
-// Balancer BPTs and Curve LPs keep their full symbol (already meaningful).
-function cleanLpSymbol(sym) {
-  if (!sym) return null;
-  return sym.replace(/^[vs]AMM-/i, '').replace(/\//g, '-');
-}
-
-// Build a moo-token symbol from a cleaned pool name string.
-// "USDC-WETH" → "mooUsdcWeth"   "80ALCX-20WETH" → "moo80Alcx20Weth"
-function toMooSymbol(poolName) {
-  if (!poolName) return '';
-  const parts = poolName
-    .replace(/\//g, '-')
-    .split('-')
-    .map(p => {
-      if (!p) return '';
-      const firstAlpha = p.search(/[a-zA-Z]/);
-      if (firstAlpha === -1) return p; // pure number segment — keep as-is
-      return p.slice(0, firstAlpha)
-        + p[firstAlpha].toUpperCase()
-        + p.slice(firstAlpha + 1).toLowerCase();
-    });
-  return 'moo' + parts.join('');
-}
-
-function buildSuggestions(form) {
-  const lp = form.lpInfo;
-  const tokens = [lp?.token0?.symbol, lp?.token1?.symbol, lp?.token2?.symbol]
-    .filter(Boolean);
-
-  // Prefer the LP's own symbol (cleaned) — most accurate for BPTs and Curve LPs
-  const lpSymbolClean = cleanLpSymbol(lp?.lpSymbol);
-  const poolName = lpSymbolClean || tokens.join('-') || 'LP';
-
-  return {
-    suggestedName:   `Beefy ${poolName}`,
-    suggestedSymbol: toMooSymbol(poolName),
-    poolName,
-  };
-}
 
 export function Step6VaultName({ form, setForm, onNext, onBack }) {
   const { suggestedName, suggestedSymbol } = buildSuggestions(form);
