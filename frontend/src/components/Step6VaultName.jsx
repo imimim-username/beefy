@@ -30,11 +30,14 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
   // Address book — load once on mount
   const addrBook = loadAddrBook();
 
-  const [name,             setName]             = useState(form.vaultName    || suggestedName);
-  const [symbol,           setSymbol]           = useState(form.vaultSymbol  || suggestedSymbol);
-  const [router,           setRouter]           = useState(form.unirouter    || addrBook.router    || '');
-  const [strategist,       setStrategist]       = useState(form.strategist   || addrBook.strategist || '');
-  const [harvestOnDeposit, setHarvestOnDeposit] = useState(defaultHarvestOnDeposit);
+  const [name,                   setName]                   = useState(form.vaultName    || suggestedName);
+  const [symbol,                 setSymbol]                 = useState(form.vaultSymbol  || suggestedSymbol);
+  const [router,                 setRouter]                 = useState(form.unirouter    || addrBook.router    || '');
+  const [strategist,             setStrategist]             = useState(form.strategist   || addrBook.strategist || '');
+  const [harvestOnDeposit,       setHarvestOnDeposit]       = useState(defaultHarvestOnDeposit);
+  // Default true: standard Beefy convention is to transfer vault to the multisig after deploy.
+  // Turning this off keeps the deployer as owner — useful for testing or private vaults.
+  const [transferVaultOwnership, setTransferVaultOwnership] = useState(form.transferVaultOwnership ?? true);
 
   const strategistErr = strategist.trim() && !ETH_ADDR_RE.test(strategist.trim());
   const routerErr     = router.trim()     && !ETH_ADDR_RE.test(router.trim());
@@ -48,11 +51,12 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
 
     setForm(f => ({
       ...f,
-      vaultName:        name.trim()       || suggestedName,
-      vaultSymbol:      symbol.trim()     || suggestedSymbol,
-      unirouter:        router.trim()     || undefined,
-      strategist:       strategist.trim() || undefined,
+      vaultName:              name.trim()       || suggestedName,
+      vaultSymbol:            symbol.trim()     || suggestedSymbol,
+      unirouter:              router.trim()     || undefined,
+      strategist:             strategist.trim() || undefined,
       harvestOnDeposit,
+      transferVaultOwnership,
     }));
     onNext();
   }
@@ -208,6 +212,36 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
         </div>
       </PixelBox>
 
+      {/* ── transferVaultOwnership toggle ────────────────────────────────────── */}
+      <PixelBox style={{ padding: '12px', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flexShrink: 0 }}>
+            <input
+              type="checkbox"
+              checked={transferVaultOwnership}
+              onChange={e => setTransferVaultOwnership(e.target.checked)}
+              style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+            />
+            <span style={{ fontSize: '8px', color: 'var(--cyan)', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+              TRANSFER VAULT OWNERSHIP
+            </span>
+          </label>
+          <div style={{ fontSize: '7px', color: 'var(--muted)', lineHeight: '1.7' }}>
+            When enabled, vault ownership is transferred to the Beefy multisig
+            (<code style={{ color: 'var(--cyan)' }}>beefyAddresses.vaultOwner</code>) at the
+            end of deployment — standard Beefy convention for production vaults.
+            <span style={{
+              color: transferVaultOwnership ? 'var(--green)' : 'var(--gold)',
+              marginTop: '4px', display: 'block',
+            }}>
+              {transferVaultOwnership
+                ? '✓ ON — vault will be owned by the Beefy multisig after deploy.'
+                : '⚠ OFF — deployer wallet retains vault ownership. Use for testing only.'}
+            </span>
+          </div>
+        </div>
+      </PixelBox>
+
       {/* Preview */}
       <PixelBox style={{ padding: '12px', marginBottom: '16px' }}>
         <div style={{ fontSize: '7px', display: 'grid', gap: '6px' }}>
@@ -221,6 +255,12 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
             <span style={{ color: 'var(--gold)' }}>Harvest on deposit: </span>
             <span style={{ color: harvestOnDeposit ? 'var(--green)' : '#aaa' }}>
               {harvestOnDeposit ? 'YES' : 'NO'}
+            </span>
+          </div>
+          <div>
+            <span style={{ color: 'var(--gold)' }}>Transfer vault ownership: </span>
+            <span style={{ color: transferVaultOwnership ? 'var(--green)' : 'var(--gold)' }}>
+              {transferVaultOwnership ? 'YES → Beefy multisig' : 'NO — deployer keeps ownership'}
             </span>
           </div>
         </div>

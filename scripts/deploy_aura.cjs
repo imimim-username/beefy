@@ -127,7 +127,7 @@ async function main() {
 
   // ── 4. Transfer vault ownership to Beefy multisig ────────────────────────────
   const vaultOwner = beefyAddresses.vaultOwner;
-  if (vaultOwner && vaultOwner !== ZERO) {
+  if (params.transferVaultOwnership !== false && vaultOwner && vaultOwner !== ZERO) {
     await (await vault.transferOwnership(vaultOwner)).wait();
     console.log(`[aura-deploy] vault ownership → ${vaultOwner}`);
   }

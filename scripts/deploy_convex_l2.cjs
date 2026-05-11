@@ -156,7 +156,7 @@ async function main() {
 
   // ── 6. Transfer vault ownership to Beefy multisig ─────────────────────────
   const vaultOwner = beefyAddresses.vaultOwner;
-  if (vaultOwner && vaultOwner !== ZERO) {
+  if (params.transferVaultOwnership !== false && vaultOwner && vaultOwner !== ZERO) {
     const vaultForOwner = new ethers.Contract(vaultAddress, ['function transferOwnership(address newOwner) external'], deployer);
     await (await vaultForOwner.transferOwnership(vaultOwner)).wait();
     console.log(`[convex-l2-deploy] vault ownership transferred to: ${vaultOwner}`);

@@ -153,7 +153,7 @@ async function main() {
   // ── 6. Transfer vault ownership to Beefy multisig ─────────────────────────
   // Note: strategy ownership stays with StrategyFactory (not transferred manually)
   const vaultOwner = beefyAddresses.vaultOwner;
-  if (vaultOwner && vaultOwner !== ZERO) {
+  if (params.transferVaultOwnership !== false && vaultOwner && vaultOwner !== ZERO) {
     const vaultOwnerAbi = ['function transferOwnership(address newOwner) external'];
     const vaultForOwner = new ethers.Contract(vaultAddress, vaultOwnerAbi, deployer);
     await (await vaultForOwner.transferOwnership(vaultOwner)).wait();

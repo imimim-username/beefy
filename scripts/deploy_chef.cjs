@@ -139,7 +139,7 @@ async function main() {
 
   // ── 6. Transfer vault ownership to Beefy multisig ─────────────────────────
   const vaultOwner = beefyAddresses.vaultOwner;
-  if (vaultOwner && vaultOwner !== '0x0000000000000000000000000000000000000000') {
+  if (params.transferVaultOwnership !== false && vaultOwner && vaultOwner !== '0x0000000000000000000000000000000000000000') {
     const vaultOwnerAbi = ['function transferOwnership(address newOwner) external'];
     const vaultForOwner = new ethers.Contract(vaultAddress, vaultOwnerAbi, deployer);
     await (await vaultForOwner.transferOwnership(vaultOwner)).wait();

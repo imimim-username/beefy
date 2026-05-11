@@ -164,7 +164,7 @@ async function main() {
 
   // ── 5. Transfer vault ownership to Beefy multisig ────────────────────────────
   const vaultOwner = beefyAddresses.vaultOwner;
-  if (vaultOwner && vaultOwner !== ZERO) {
+  if (params.transferVaultOwnership !== false && vaultOwner && vaultOwner !== ZERO) {
     await (await vault.transferOwnership(vaultOwner)).wait();
     console.log(`[tokemak-deploy] vault ownership → ${vaultOwner}`);
   }

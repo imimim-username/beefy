@@ -146,7 +146,7 @@ async function main() {
   // ── 5. Transfer vault ownership ───────────────────────────────────────────
   // Note: strategy ownership stays with StrategyFactory (not transferred manually)
   const vaultOwner = beefyAddresses.vaultOwner;
-  if (vaultOwner && vaultOwner !== ZERO) {
+  if (params.transferVaultOwnership !== false && vaultOwner && vaultOwner !== ZERO) {
     const vaultForOwner = new ethers.Contract(vaultAddress, ['function transferOwnership(address newOwner) external'], deployer);
     await (await vaultForOwner.transferOwnership(vaultOwner)).wait();
     console.log(`[curvegauge-deploy] vault ownership transferred to: ${vaultOwner}`);

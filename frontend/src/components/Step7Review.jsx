@@ -101,6 +101,10 @@ export function Step7Review({ form, onDryRun, onBack, onJumpTo }) {
         <Row label="Strategist"   value={form.strategist || '(deployer address)'} addr={!!form.strategist} />
         <Row label="Harvest on Deposit"
              value={form.harvestOnDeposit ? 'YES (harvests on every deposit)' : 'NO — keeper-scheduled (default)'} />
+        <Row label="Transfer Vault Ownership"
+             value={form.transferVaultOwnership === false
+               ? '⚠ NO — deployer keeps ownership'
+               : 'YES → Beefy multisig (standard)'} />
       </div>
 
       {/* LP / staking info */}
