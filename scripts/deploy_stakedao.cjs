@@ -15,6 +15,7 @@
 const { ethers, network } = require('hardhat');
 const path = require('path');
 const fs   = require('fs');
+const { STRATEGY_FACTORY_ABI, assertStrategyRegistered } = require('./_strategyFactory.cjs');
 
 async function main() {
   const paramsFile = path.join(__dirname, '_deploy_params.json');
@@ -78,10 +79,16 @@ async function main() {
   // Use staticCall to get the proxy address before sending the tx — avoids
   // depending on parsing the ProxyCreated event (whose signature differs from
   // the VaultFactory event: StrategyFactory emits (string name, address proxy)).
-  const strategyFactoryAbi = [
-    'function createStrategy(string calldata _strategyName) external returns (address)',
-  ];
-  const strategyFactory = new ethers.Contract(beefyAddresses.strategyFactory, strategyFactoryAbi, deployer);
+  const strategyFactory = new ethers.Contract(beefyAddresses.strategyFactory, STRATEGY_FACTORY_ABI, deployer);
+
+  // Pre-flight: verify StakeDaoV2 is registered on this chain's StrategyFactory before
+  // calling createStrategy(), which reverts with ERC1967InvalidBeacon(address(0)) if not.
+  // StakeDAO's liquid-locker/gauge system only exists on Ethereum mainnet.
+  const implAddress = await assertStrategyRegistered(
+    strategyFactory, 'StakeDaoV2', beefyAddresses.strategyFactory, chainId
+  );
+  console.log(`[stakedao-deploy] StakeDaoV2 implementation verified: ${implAddress}`);
+
   const stratAddress = await strategyFactory.createStrategy.staticCall('StakeDaoV2');
   if (!stratAddress || stratAddress === ZERO) throw new Error('staticCall returned zero address for createStrategy');
   console.log(`[stakedao-deploy] strategy address (pre-computed): ${stratAddress}`);
