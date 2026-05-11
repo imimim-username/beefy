@@ -143,7 +143,7 @@ export default function App() {
       {(step > 0 || Object.keys(form).length > 0) && (
         <div style={{
           fontSize: '6px',
-          color: 'var(--border)',
+          color: 'var(--muted)',
           textAlign: 'right',
           padding: '2px 4px',
           marginBottom: '2px',

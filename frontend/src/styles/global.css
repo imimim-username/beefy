@@ -9,6 +9,7 @@
   --bg2:         #161640;
   --bg3:         #1e1e5a;
   --border:      #3a3a8c;
+  --muted:       #8888cc;   /* secondary/hint text — readable but clearly secondary */
   --cyan:        #00e5ff;
   --cyan-dim:    #0099bb;
   --gold:        #ffd700;
@@ -148,7 +149,7 @@ body {
   border-color: var(--cyan);
   box-shadow: inset 2px 2px 0 #00000060, 0 0 0 2px var(--cyan-dim);
 }
-.pixel-input::placeholder { color: var(--border); }
+.pixel-input::placeholder { color: var(--muted); }
 .pixel-input.error { border-color: var(--red); }
 .pixel-input.ok    { border-color: var(--green); }
 
@@ -193,7 +194,7 @@ body {
 /* ── Hint / Error text ──────────────────────────────────────────────────── */
 .hint {
   font-size: 7px;
-  color: var(--border);
+  color: var(--muted);
   margin-top: 4px;
 }
 .hint.ok      { color: var(--green); }
@@ -242,7 +243,7 @@ body {
   padding: 6px 10px;
   font-size: 7px;
   border: 2px solid var(--border);
-  color: var(--border);
+  color: var(--muted);
 }
 .wizard-step.active {
   border-color: var(--gold);
@@ -281,7 +282,7 @@ body {
 .app-footer {
   text-align: center;
   font-size: 7px;
-  color: var(--border);
+  color: var(--muted);
   margin-top: 40px;
   padding-top: 16px;
   border-top: 2px solid var(--border);
@@ -377,7 +378,8 @@ body {
 /* ── Address truncation ──────────────────────────────────────────────────── */
 .addr {
   font-size: 7px;
-  color: var(--cyan-dim);
+  color: var(--cyan);
+  opacity: 0.75;
   word-break: break-all;
 }
 
