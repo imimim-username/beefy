@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { WizardSteps } from './components/PixelBox.jsx';
+import { HelpModal }    from './components/HelpModal.jsx';
 import { Step1Network }  from './components/Step1Network.jsx';
 import { Step2LP }       from './components/Step2LP.jsx';
 import { Step3Staking }  from './components/Step3Staking.jsx';
@@ -52,6 +53,14 @@ function loadSavedStep() {
 export default function App() {
   const [step,  setStep]  = useState(() => loadSavedStep());
   const [form,  setForm]  = useState(() => loadSaved());
+  const [showHelp, setShowHelp] = useState(false);
+
+  // Close help on Escape
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') setShowHelp(false); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   // Persist form + step to localStorage on every change.
   // Use a ref so the effect doesn't re-run on its own writes.
@@ -80,10 +89,30 @@ export default function App() {
 
   return (
     <div className="app-wrap">
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+
       {/* Header */}
-      <div className="app-header">
-        <div className="app-title">🐮 BEEFYFINAL</div>
-        <div className="app-subtitle">BEEFY VAULT DEPLOYER</div>
+      <div className="app-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div className="app-title">🐮 BEEFYFINAL</div>
+          <div className="app-subtitle">BEEFY VAULT DEPLOYER</div>
+        </div>
+        <button
+          onClick={() => setShowHelp(true)}
+          title="Help &amp; Guide"
+          style={{
+            background: 'none',
+            border: '2px solid var(--gold)',
+            color: 'var(--gold)',
+            fontFamily: 'var(--font)',
+            fontSize: '9px',
+            cursor: 'pointer',
+            padding: '5px 9px',
+            lineHeight: 1,
+          }}
+        >
+          ❓
+        </button>
       </div>
 
       {/* Step indicator */}
