@@ -70,11 +70,28 @@ const CURVE_POOL_ABI = [
   'function symbol() view returns (string)',
 ];
 
-// Aura / Convex boosters share the same poolInfo() interface
+// Aura / Convex L1 booster poolInfo — 6 return values
+// (lptoken, token, gauge, crvRewards, stash, shutdown)
 const BOOSTER_ABI = [
   'function poolLength() view returns (uint256)',
   'function poolInfo(uint256 pid) view returns (address lptoken, address token, address gauge, address crvRewards, address stash, bool shutdown)',
 ];
+
+// Convex L2 (sidechain) booster poolInfo — 5 return values, different field layout:
+// (lptoken, gauge, rewards, shutdown, factory)
+// NOTE: same booster ADDRESS (0xF403C135...) but different ABI on L2 networks.
+const BOOSTER_ABI_L2 = [
+  'function poolLength() view returns (uint256)',
+  'function poolInfo(uint256 pid) view returns (address lptoken, address gauge, address rewards, bool shutdown, address factory)',
+];
+
+/**
+ * Return the correct Convex booster ABI for a given chain.
+ * L2 chains (convexL2: true in chains.js) use a different poolInfo() tuple.
+ */
+function getBoosterAbi(chainId) {
+  return CHAINS[chainId]?.convexL2 ? BOOSTER_ABI_L2 : BOOSTER_ABI;
+}
 
 // Convex/Aura crvRewards pool — main reward token + extra reward pools
 const REWARD_POOL_ABI = [
@@ -331,11 +348,17 @@ async function validateAura(chainId, boosterAddress, pid) {
 
 /**
  * Validate a Convex Booster pool and return the lptoken for cross-checking.
- * Returns { valid, poolLength, lpInPool?, rewardPool? }
+ * Returns { valid, poolLength, lpInPool?, rewardPool?, gauge? }
+ *
+ * Uses chain-specific ABI — L1 and L2 boosters share an address but differ:
+ *   L1: poolInfo → (lptoken, token, gauge, crvRewards, stash, shutdown)
+ *   L2: poolInfo → (lptoken, gauge, rewards, shutdown, factory)
  */
 async function validateConvex(chainId, boosterAddress, pid) {
   const provider = getProvider(chainId);
-  const booster = new ethers.Contract(ethers.getAddress(boosterAddress), BOOSTER_ABI, provider);
+  const isL2 = !!CHAINS[chainId]?.convexL2;
+  const abi = getBoosterAbi(chainId);
+  const booster = new ethers.Contract(ethers.getAddress(boosterAddress), abi, provider);
   try {
     const poolLength = Number(await booster.poolLength());
     const p = Number(pid);
@@ -343,7 +366,13 @@ async function validateConvex(chainId, boosterAddress, pid) {
       return { valid: false, error: `pid ${p} out of range (${poolLength} pools)` };
     }
     const info = await booster.poolInfo(p);
-    return { valid: true, poolLength, lpInPool: info.lptoken, rewardPool: info.crvRewards };
+    if (isL2) {
+      // L2: (lptoken, gauge, rewards, shutdown, factory)
+      return { valid: true, poolLength, lpInPool: info.lptoken, gauge: info.gauge, rewardPool: info.rewards };
+    } else {
+      // L1: (lptoken, token, gauge, crvRewards, stash, shutdown)
+      return { valid: true, poolLength, lpInPool: info.lptoken, gauge: info.gauge, rewardPool: info.crvRewards };
+    }
   } catch (e) {
     return { valid: false, error: e.message };
   }
@@ -435,7 +464,7 @@ async function resolveToken(chainId, tokenAddress) {
  */
 async function findPoolByLp(chainId, boosterAddress, lpAddress) {
   const provider = getProvider(chainId);
-  const booster = new ethers.Contract(ethers.getAddress(boosterAddress), BOOSTER_ABI, provider);
+  const booster = new ethers.Contract(ethers.getAddress(boosterAddress), getBoosterAbi(chainId), provider);
   const poolLength = Number(await booster.poolLength());
   const target = lpAddress.toLowerCase();
   const BATCH = 20; // parallel requests per round

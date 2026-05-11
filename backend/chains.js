@@ -12,6 +12,13 @@
  * nativeToken       : wrapped native (WBNB, WMATIC, etc.)
  * auraBooster       : Aura Finance Booster (for Balancer LP vaults)
  * convexBooster     : Convex Finance Booster (for Curve LP vaults)
+ * convexL2          : true → chain uses StrategyCurveConvexL2Factory ('CurveConvexL2')
+ *                     instead of L1 StrategyCurveConvexFactory ('CurveConvex').
+ *                     L1 and L2 boosters share address but have DIFFERENT poolInfo() ABIs:
+ *                       L1: (lptoken, token, gauge, crvRewards, stash, shutdown)  — 6 values
+ *                       L2: (lptoken, gauge, rewards, shutdown, factory)          — 5 values
+ * curveGaugeL2      : true → chain uses 'CurveConvexL2' strategy name for pure
+ *                     Curve gauge (NO_PID) deployments (Arbitrum, Optimism, Base, etc.)
  * balancerVault     : Balancer Vault — same address on every chain
  * strategyFactory   : Beefy StrategyFactory — createStrategy(name) clones an audited
  *                     implementation (required for Aura, gauge, convex, curvegauge, stakedao)
@@ -102,6 +109,8 @@ const CHAINS = {
     rpcFallback: 'https://arb1.arbitrum.io/rpc',
     nativeSymbol: 'ETH',
     nativeToken: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1', // WETH
+    convexL2: true,      // uses StrategyCurveConvexL2Factory — different booster ABI
+    curveGaugeL2: true,  // curvegauge (NO_PID) also uses CurveConvexL2 on this chain
     beefyAddresses: {
       vaultFactory:      '0x8396f3d25d07531a80770Ce3DEA025932C4953f7',
       keeper:            '0x4fED5491693007f0CD49f4614FFC38Ab6A04B619',
@@ -127,6 +136,7 @@ const CHAINS = {
     rpcFallback: 'https://mainnet.optimism.io',
     nativeSymbol: 'ETH',
     nativeToken: '0x4200000000000000000000000000000000000006', // WETH
+    curveGaugeL2: true,  // Curve native gauges on Optimism use CurveConvexL2 strategy
     beefyAddresses: {
       vaultFactory:      '0xA6D3769faC465FC0415e7E9F16dcdC96B83C240B',
       keeper:            '0x4fED5491693007f0CD49f4614FFC38Ab6A04B619',
@@ -151,6 +161,7 @@ const CHAINS = {
     rpcFallback: 'https://mainnet.base.org',
     nativeSymbol: 'ETH',
     nativeToken: '0x4200000000000000000000000000000000000006', // WETH
+    curveGaugeL2: true,  // Curve native gauges on Base use CurveConvexL2 strategy
     beefyAddresses: {
       vaultFactory:      '0xBC4a342B0c057501E081484A2d24e576E854F823',
       keeper:            '0x4fED5491693007f0CD49f4614FFC38Ab6A04B619',

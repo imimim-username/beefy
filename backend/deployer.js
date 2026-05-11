@@ -88,6 +88,30 @@ function parseResult(stdout) {
  */
 
 /**
+ * Resolve the correct deploy script filename for a given strategy type and chain.
+ *
+ * Curve/Convex strategies use different StrategyFactory names and booster ABIs on L1 vs L2:
+ *   L1 (Ethereum)   : 'CurveConvex'   → deploy_convex.cjs / deploy_curvegauge.cjs
+ *   L2 (Arbitrum…)  : 'CurveConvexL2' → deploy_convex_l2.cjs / deploy_curvegauge_l2.cjs
+ *
+ * The `convexL2` and `curveGaugeL2` flags on the chain object drive this routing.
+ * All other strategy types use the flat `deploy_${strategyType}.cjs` convention.
+ *
+ * @param {string} strategyType
+ * @param {object} chain  — entry from CHAINS
+ * @returns {string} relative path to the deploy script (e.g. 'scripts/deploy_convex_l2.cjs')
+ */
+function resolveDeployScript(strategyType, chain) {
+  if (strategyType === 'convex' && chain.convexL2) {
+    return 'scripts/deploy_convex_l2.cjs';
+  }
+  if (strategyType === 'curvegauge' && chain.curveGaugeL2) {
+    return 'scripts/deploy_curvegauge_l2.cjs';
+  }
+  return `scripts/deploy_${strategyType}.cjs`;
+}
+
+/**
  * Dry-run on a forked chain.
  * @param {DeployParams} params
  * @returns {Promise<{ok, result?, error?}>}
@@ -101,7 +125,7 @@ async function dryRun(params) {
   const fullParams = { ...params, beefyAddresses: chain.beefyAddresses, dryRun: true };
   writeParamsFile(fullParams);
 
-  const script = `scripts/deploy_${params.strategyType}.cjs`;
+  const script = resolveDeployScript(params.strategyType, chain);
   const { stdout, stderr, exitCode } = await runHardhat(
     [script, '--network', 'hardhat'],
     { FORK_URL: forkUrl }
@@ -131,7 +155,7 @@ async function execute(params) {
   const fullParams = { ...params, beefyAddresses: chain.beefyAddresses, dryRun: false };
   writeParamsFile(fullParams);
 
-  const script = `scripts/deploy_${params.strategyType}.cjs`;
+  const script = resolveDeployScript(params.strategyType, chain);
   const MAX_RETRIES = 3;
   const RETRY_DELAY_MS = 5000;
 
