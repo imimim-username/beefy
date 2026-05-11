@@ -76,7 +76,7 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
       {/* Auto-suggestion notice */}
       {form.lpInfo?.lpSymbol && (
         <div style={{
-          fontSize: '6px', color: 'var(--border)',
+          fontSize: '6px', color: 'var(--muted)',
           marginBottom: '12px', padding: '6px 8px',
           border: '1px solid var(--border)',
           background: 'rgba(0,0,0,0.2)',
@@ -140,7 +140,7 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
       </Field>
 
       <PixelBox style={{ padding: '10px', marginBottom: '14px' }}>
-        <div style={{ fontSize: '7px', color: 'var(--border)', lineHeight: '1.6' }}>
+        <div style={{ fontSize: '7px', color: 'var(--muted)', lineHeight: '1.6' }}>
           On every harvest, fees are split three ways:<br />
           <span style={{ color: 'var(--gold)' }}>Strategist</span> (you) ·{' '}
           <span style={{ color: 'var(--cyan)' }}>Beefy treasury</span> ·{' '}
@@ -188,7 +188,7 @@ export function Step6VaultName({ form, setForm, onNext, onBack }) {
               HARVEST ON DEPOSIT
             </span>
           </label>
-          <div style={{ fontSize: '7px', color: 'var(--border)', lineHeight: '1.7' }}>
+          <div style={{ fontSize: '7px', color: 'var(--muted)', lineHeight: '1.7' }}>
             When enabled, the strategy harvests and compounds rewards on every user deposit
             (calls <code style={{ color: 'var(--cyan)' }}>harvest()</code> inside{' '}
             <code style={{ color: 'var(--cyan)' }}>beforeDeposit()</code>).

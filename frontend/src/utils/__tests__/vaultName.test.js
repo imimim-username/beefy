@@ -2,7 +2,7 @@
  * vaultName.test.js — Vitest unit tests for frontend/src/utils/vaultName.js
  */
 import { describe, test, expect } from 'vitest';
-import { cleanLpSymbol, toMooSymbol, buildSuggestions } from '../vaultName.js';
+import { cleanLpSymbol, toMooSymbol, platformPrefix, buildSuggestions } from '../vaultName.js';
 
 // ─── cleanLpSymbol ─────────────────────────────────────────────────────────────
 describe('cleanLpSymbol', () => {
@@ -68,7 +68,6 @@ describe('toMooSymbol', () => {
   });
 
   test('3CRV → moo3Crv (leading digit, first alpha uppercased, rest lowercased)', () => {
-    // '3CRV' is one segment: firstAlpha=1 → '3' + 'C'.upper + 'RV'.lower = '3Crv'
     expect(toMooSymbol('3CRV')).toBe('moo3Crv');
   });
 
@@ -81,60 +80,178 @@ describe('toMooSymbol', () => {
   });
 
   test('pure-number segment is kept as-is: 3-CRV → moo3Crv', () => {
-    // "3" is a pure-number segment — kept; "CRV" gets capitalized
     expect(toMooSymbol('3-CRV')).toBe('moo3Crv');
+  });
+});
+
+// ─── platformPrefix ────────────────────────────────────────────────────────────
+describe('platformPrefix', () => {
+  test('gauge on Optimism (10) → VelodromeOp', () => {
+    expect(platformPrefix('gauge', 10)).toBe('VelodromeOp');
+  });
+
+  test('gauge on Base (8453) → AerodromeBase', () => {
+    expect(platformPrefix('gauge', 8453)).toBe('AerodromeBase');
+  });
+
+  test('gauge on Fantom (250) → SolidlyFtm', () => {
+    expect(platformPrefix('gauge', 250)).toBe('SolidlyFtm');
+  });
+
+  test('gauge on unknown chain → SolidlyXxx (empty chain suffix)', () => {
+    expect(platformPrefix('gauge', 999)).toBe('Solidly');
+  });
+
+  test('convex on Ethereum (1) → CurveEth', () => {
+    expect(platformPrefix('convex', 1)).toBe('CurveEth');
+  });
+
+  test('curvegauge on Arbitrum (42161) → CurveArb', () => {
+    expect(platformPrefix('curvegauge', 42161)).toBe('CurveArb');
+  });
+
+  test('stakedao on Ethereum (1) → StakeDaoEth', () => {
+    expect(platformPrefix('stakedao', 1)).toBe('StakeDaoEth');
+  });
+
+  test('aura on Arbitrum (42161) → AuraArb', () => {
+    expect(platformPrefix('aura', 42161)).toBe('AuraArb');
+  });
+
+  test('aave on Optimism (10) → AaveV3Op', () => {
+    expect(platformPrefix('aave', 10)).toBe('AaveV3Op');
+  });
+
+  test('compound on Base (8453) → CompoundBase', () => {
+    expect(platformPrefix('compound', 8453)).toBe('CompoundBase');
+  });
+
+  test('morpho on Ethereum (1) → MorphoEth', () => {
+    expect(platformPrefix('morpho', 1)).toBe('MorphoEth');
+  });
+
+  test('silov2 on Optimism (10) → SiloOp', () => {
+    expect(platformPrefix('silov2', 10)).toBe('SiloOp');
+  });
+
+  test('pendle on Arbitrum (42161) → PendleArb', () => {
+    expect(platformPrefix('pendle', 42161)).toBe('PendleArb');
+  });
+
+  test('tokemak on Ethereum (1) → TokemakEth', () => {
+    expect(platformPrefix('tokemak', 1)).toBe('TokemakEth');
+  });
+
+  test('chef on BSC (56) → Bsc (DEX name unknown)', () => {
+    expect(platformPrefix('chef', 56)).toBe('Bsc');
+  });
+
+  test('erc4626 on Base (8453) → Base (protocol unknown)', () => {
+    expect(platformPrefix('erc4626', 8453)).toBe('Base');
+  });
+
+  test('unknown stratType on Polygon (137) → Polygon', () => {
+    expect(platformPrefix('unknown', 137)).toBe('Polygon');
   });
 });
 
 // ─── buildSuggestions ─────────────────────────────────────────────────────────
 describe('buildSuggestions', () => {
-  test('uses lpSymbol when available (prefers cleaned LP symbol)', () => {
+  test('vault name has NO "Beefy" prefix — just the pool name', () => {
     const form = {
-      lpInfo: {
-        lpSymbol: 'sAMM-USDC/WETH',
-        token0: { symbol: 'USDC' },
-        token1: { symbol: 'WETH' },
-      },
+      strategyType: 'gauge',
+      chainId: 10,
+      lpInfo: { lpSymbol: 'sAMM-USDC/WETH', token0: { symbol: 'USDC' }, token1: { symbol: 'WETH' } },
+    };
+    const { suggestedName } = buildSuggestions(form);
+    expect(suggestedName).toBe('USDC-WETH');
+    expect(suggestedName).not.toContain('Beefy');
+  });
+
+  test('Velodrome (gauge / Optimism): mooVelodromeOpUSDC-WETH', () => {
+    const form = {
+      strategyType: 'gauge',
+      chainId: 10,
+      lpInfo: { lpSymbol: 'sAMM-USDC/WETH', token0: { symbol: 'USDC' }, token1: { symbol: 'WETH' } },
     };
     const { suggestedName, suggestedSymbol, poolName } = buildSuggestions(form);
     expect(poolName).toBe('USDC-WETH');
-    expect(suggestedName).toBe('Beefy USDC-WETH');
-    expect(suggestedSymbol).toBe('mooUsdcWeth');
+    expect(suggestedName).toBe('USDC-WETH');
+    expect(suggestedSymbol).toBe('mooVelodromeOpUSDC-WETH');
+  });
+
+  test('Aerodrome (gauge / Base): mooAerodromeBaseOP-USDC', () => {
+    const form = {
+      strategyType: 'gauge',
+      chainId: 8453,
+      lpInfo: { lpSymbol: 'vAMM-OP/USDC', token0: { symbol: 'OP' }, token1: { symbol: 'USDC' } },
+    };
+    const { suggestedName, suggestedSymbol } = buildSuggestions(form);
+    expect(suggestedName).toBe('OP-USDC');
+    expect(suggestedSymbol).toBe('mooAerodromeBaseOP-USDC');
+  });
+
+  test('Convex (Ethereum): mooCurveEthcrvUSD-scrvUSD', () => {
+    const form = {
+      strategyType: 'convex',
+      chainId: 1,
+      lpInfo: { lpSymbol: 'crvUSD/scrvUSD', token0: { symbol: 'crvUSD' }, token1: { symbol: 'scrvUSD' } },
+    };
+    const { suggestedName, suggestedSymbol } = buildSuggestions(form);
+    expect(suggestedName).toBe('crvUSD-scrvUSD');
+    expect(suggestedSymbol).toBe('mooCurveEthcrvUSD-scrvUSD');
+  });
+
+  test('Aura (Arbitrum): mooAuraArb80ALCX-20WETH', () => {
+    const form = {
+      strategyType: 'aura',
+      chainId: 42161,
+      lpInfo: { lpSymbol: '80ALCX-20WETH', token0: { symbol: 'ALCX' }, token1: { symbol: 'WETH' } },
+    };
+    const { suggestedName, suggestedSymbol } = buildSuggestions(form);
+    expect(suggestedName).toBe('80ALCX-20WETH');
+    expect(suggestedSymbol).toBe('mooAuraArb80ALCX-20WETH');
+  });
+
+  test('Aave single-asset (Optimism): mooAaveV3OpWETH', () => {
+    const form = {
+      strategyType: 'aave',
+      chainId: 10,
+      lpInfo: { lpSymbol: 'WETH', token0: { symbol: 'WETH' } },
+    };
+    const { suggestedName, suggestedSymbol } = buildSuggestions(form);
+    expect(suggestedName).toBe('WETH');
+    expect(suggestedSymbol).toBe('mooAaveV3OpWETH');
+  });
+
+  test('StakeDAO (Ethereum): mooStakeDaoEthcrvUSD-USDC', () => {
+    const form = {
+      strategyType: 'stakedao',
+      chainId: 1,
+      lpInfo: { token0: { symbol: 'crvUSD' }, token1: { symbol: 'USDC' } },
+    };
+    const { suggestedName, suggestedSymbol } = buildSuggestions(form);
+    expect(suggestedName).toBe('crvUSD-USDC');
+    expect(suggestedSymbol).toBe('mooStakeDaoEthcrvUSD-USDC');
   });
 
   test('falls back to token symbols joined by dash when lpSymbol is absent', () => {
     const form = {
-      lpInfo: {
-        token0: { symbol: 'OP' },
-        token1: { symbol: 'USDC' },
-      },
+      strategyType: 'chef',
+      chainId: 56,
+      lpInfo: { token0: { symbol: 'CAKE' }, token1: { symbol: 'BNB' } },
     };
     const { suggestedName, suggestedSymbol, poolName } = buildSuggestions(form);
-    expect(poolName).toBe('OP-USDC');
-    expect(suggestedName).toBe('Beefy OP-USDC');
-    expect(suggestedSymbol).toBe('mooOpUsdc');
-  });
-
-  test('supports three-token Curve pools (token2 included)', () => {
-    const form = {
-      lpInfo: {
-        lpSymbol: '3CRV',
-        token0: { symbol: 'DAI' },
-        token1: { symbol: 'USDC' },
-        token2: { symbol: 'USDT' },
-      },
-    };
-    const { suggestedName, suggestedSymbol, poolName } = buildSuggestions(form);
-    expect(poolName).toBe('3CRV');
-    expect(suggestedName).toBe('Beefy 3CRV');
-    expect(suggestedSymbol).toBe('moo3Crv');
+    expect(poolName).toBe('CAKE-BNB');
+    expect(suggestedName).toBe('CAKE-BNB');
+    expect(suggestedSymbol).toBe('mooBscCAKE-BNB');
   });
 
   test('falls back to "LP" when both lpSymbol and tokens are absent', () => {
     const { suggestedName, suggestedSymbol, poolName } = buildSuggestions({});
     expect(poolName).toBe('LP');
-    expect(suggestedName).toBe('Beefy LP');
-    expect(suggestedSymbol).toBe('mooLp');
+    expect(suggestedName).toBe('LP');
+    expect(suggestedSymbol).toBe('mooLP');
   });
 
   test('handles null/undefined form gracefully', () => {
@@ -144,23 +261,35 @@ describe('buildSuggestions', () => {
 
   test('Balancer BPT: uses symbol as-is', () => {
     const form = {
-      lpInfo: {
-        lpSymbol: '80ALCX-20WETH',
-        token0: { symbol: 'ALCX' },
-        token1: { symbol: 'WETH' },
-      },
+      strategyType: 'aura',
+      chainId: 1,
+      lpInfo: { lpSymbol: '80ALCX-20WETH', token0: { symbol: 'ALCX' }, token1: { symbol: 'WETH' } },
     };
     const { suggestedName, suggestedSymbol, poolName } = buildSuggestions(form);
     expect(poolName).toBe('80ALCX-20WETH');
-    expect(suggestedSymbol).toBe('moo80Alcx20Weth');
+    expect(suggestedName).toBe('80ALCX-20WETH');
+    expect(suggestedSymbol).toBe('mooAuraEth80ALCX-20WETH');
+  });
+
+  test('three-token Curve pool (token2 included)', () => {
+    const form = {
+      strategyType: 'curvegauge',
+      chainId: 1,
+      lpInfo: {
+        lpSymbol: '3CRV',
+        token0: { symbol: 'DAI' },
+        token1: { symbol: 'USDC' },
+        token2: { symbol: 'USDT' },
+      },
+    };
+    const { suggestedName, suggestedSymbol } = buildSuggestions(form);
+    expect(suggestedName).toBe('3CRV');
+    expect(suggestedSymbol).toBe('mooCurveEth3CRV');
   });
 });
 
 // ─── LP_TYPE_COMPATIBLE logic (unit-tested separately) ────────────────────────
-// These mirror the logic in Step3Staking.jsx — tested here as pure maps
-// since they don't depend on React state.
 describe('LP type ↔ strategy compatibility (regression test for the mismatch bug)', () => {
-  // Inline the map as it exists in Step3Staking.jsx
   const LP_TYPE_COMPATIBLE = {
     chef:       ['univ2', 'solidly'],
     gauge:      ['solidly', 'univ2'],
@@ -181,7 +310,7 @@ describe('LP type ↔ strategy compatibility (regression test for the mismatch b
     expect(isMismatch('chef', 'univ2')).toBe(false);
   });
 
-  test('chef + solidly → no mismatch (Solidly/Uni-V2 LP can both use chef)', () => {
+  test('chef + solidly → no mismatch', () => {
     expect(isMismatch('chef', 'solidly')).toBe(false);
   });
 
@@ -223,11 +352,7 @@ describe('LP type ↔ strategy compatibility (regression test for the mismatch b
     }
   });
 
-  // Regression: the OLD code used LP_TYPE_MATCH = { chef: null, gauge: null }
-  // which caused `null !== 'univ2'` → true → false mismatch for gauge+univ2.
   test('regression: gauge + univ2 does NOT show a false mismatch (old bug)', () => {
-    // Old logic: LP_TYPE_MATCH.gauge = null → null !== 'univ2' → mismatch=true (WRONG)
-    // New logic: compatible=['solidly','univ2'] → includes('univ2') → mismatch=false (CORRECT)
     expect(isMismatch('gauge', 'univ2')).toBe(false);
   });
 });
