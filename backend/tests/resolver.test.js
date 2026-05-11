@@ -489,3 +489,266 @@ describe('checkSwapperRoute', () => {
     expect(result.reason).toMatch(/missing/i);
   });
 });
+
+// ─── 9. resolveLpToken — lpType field ─────────────────────────────────────────
+describe('resolveLpToken — lpType field', () => {
+  afterEach(() => { jest.resetModules(); });
+
+  /**
+   * Build a requireResolver that makes a Solidly/Uni-V2 pair succeed.
+   * Balancer and Curve probes are not reached (those paths require pair detection to fail first).
+   * We fake token0/token1/symbol as if the SOLIDLY_PAIR_ABI call worked,
+   * and control whether stable() resolves or rejects.
+   */
+  function makePairResolver({ stableValue }) {
+    let callCount = 0;
+    return requireResolver(
+      jest.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            token0:  jest.fn().mockResolvedValue(A),
+            token1:  jest.fn().mockResolvedValue(B),
+            symbol:  jest.fn().mockResolvedValue('sAMM-USDC/DAI'),
+            stable:  stableValue === undefined
+              ? jest.fn().mockRejectedValue(new Error('no stable()'))
+              : jest.fn().mockResolvedValue(stableValue),
+          };
+        }
+        // Subsequent calls are for token0 / token1 ERC-20 metadata
+        return {
+          symbol:   jest.fn().mockResolvedValue('TKN'),
+          name:     jest.fn().mockResolvedValue('Token'),
+          decimals: jest.fn().mockResolvedValue(18n),
+        };
+      })
+    );
+  }
+
+  test('lpType is "solidly" when stable() returns true', async () => {
+    const { resolveLpToken } = makePairResolver({ stableValue: true });
+    const result = await resolveLpToken(1, A);
+    expect(result.lpType).toBe('solidly');
+    expect(result.isStable).toBe(true);
+  });
+
+  test('lpType is "solidly" when stable() returns false (volatile Solidly pair)', async () => {
+    const { resolveLpToken } = makePairResolver({ stableValue: false });
+    const result = await resolveLpToken(1, A);
+    expect(result.lpType).toBe('solidly');
+    expect(result.isStable).toBe(false);
+  });
+
+  test('lpType is "univ2" when stable() reverts (plain Uni-V2 fallback)', async () => {
+    const { resolveLpToken } = makePairResolver({ stableValue: undefined });
+    const result = await resolveLpToken(1, A);
+    expect(result.lpType).toBe('univ2');
+    expect(result.isStable).toBeUndefined();
+  });
+
+  test('result always includes token0, token1, lpAddress', async () => {
+    const { resolveLpToken } = makePairResolver({ stableValue: false });
+    const result = await resolveLpToken(1, A);
+    expect(result.token0).toBeDefined();
+    expect(result.token1).toBeDefined();
+    expect(result.lpAddress).toBe(A);
+  });
+});
+
+// ─── 10. validateERC4626 ──────────────────────────────────────────────────────
+describe('validateERC4626', () => {
+  afterEach(() => { jest.resetModules(); });
+
+  test('returns { valid: true, underlying } when asset() matches expectedWant', async () => {
+    const { validateERC4626 } = requireResolver(
+      jest.fn().mockReturnValue({ asset: jest.fn().mockResolvedValue(A) })
+    );
+    const result = await validateERC4626(1, B, A);
+    expect(result.valid).toBe(true);
+    expect(result.underlying).toBe(A);
+  });
+
+  test('returns { valid: true } when expectedWant is not provided (no check)', async () => {
+    const { validateERC4626 } = requireResolver(
+      jest.fn().mockReturnValue({ asset: jest.fn().mockResolvedValue(A) })
+    );
+    const result = await validateERC4626(1, B, undefined);
+    expect(result.valid).toBe(true);
+  });
+
+  test('returns { valid: false } when underlying does not match expectedWant', async () => {
+    const { validateERC4626 } = requireResolver(
+      jest.fn().mockReturnValue({ asset: jest.fn().mockResolvedValue(C) })
+    );
+    const result = await validateERC4626(1, B, A);
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/does not match/i);
+    expect(result.underlying).toBe(C);
+  });
+
+  test('returns { valid: false } when asset() reverts (not an ERC-4626 vault)', async () => {
+    const { validateERC4626 } = requireResolver(
+      jest.fn().mockReturnValue({ asset: jest.fn().mockRejectedValue(new Error('not a vault')) })
+    );
+    const result = await validateERC4626(1, B, A);
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/not a vault/i);
+  });
+});
+
+// ─── 11. validateAToken ───────────────────────────────────────────────────────
+describe('validateAToken', () => {
+  afterEach(() => { jest.resetModules(); });
+
+  test('returns { valid: true, underlying } when UNDERLYING_ASSET_ADDRESS matches want', async () => {
+    const { validateAToken } = requireResolver(
+      jest.fn().mockReturnValue({ UNDERLYING_ASSET_ADDRESS: jest.fn().mockResolvedValue(A) })
+    );
+    const result = await validateAToken(1, B, A);
+    expect(result.valid).toBe(true);
+    expect(result.underlying).toBe(A);
+  });
+
+  test('returns { valid: false } when underlying does not match want', async () => {
+    const { validateAToken } = requireResolver(
+      jest.fn().mockReturnValue({ UNDERLYING_ASSET_ADDRESS: jest.fn().mockResolvedValue(C) })
+    );
+    const result = await validateAToken(1, B, A);
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/does not match/i);
+  });
+
+  test('returns { valid: false } when UNDERLYING_ASSET_ADDRESS() reverts', async () => {
+    const { validateAToken } = requireResolver(
+      jest.fn().mockReturnValue({ UNDERLYING_ASSET_ADDRESS: jest.fn().mockRejectedValue(new Error('revert')) })
+    );
+    const result = await validateAToken(1, B, A);
+    expect(result.valid).toBe(false);
+  });
+
+  test('returns { valid: true } when no expectedWant is provided', async () => {
+    const { validateAToken } = requireResolver(
+      jest.fn().mockReturnValue({ UNDERLYING_ASSET_ADDRESS: jest.fn().mockResolvedValue(A) })
+    );
+    const result = await validateAToken(1, B, null);
+    expect(result.valid).toBe(true);
+  });
+});
+
+// ─── 12. validateCompoundComet ────────────────────────────────────────────────
+describe('validateCompoundComet', () => {
+  afterEach(() => { jest.resetModules(); });
+
+  test('returns { valid: true, baseToken } when baseToken() matches want', async () => {
+    const { validateCompoundComet } = requireResolver(
+      jest.fn().mockReturnValue({ baseToken: jest.fn().mockResolvedValue(A) })
+    );
+    const result = await validateCompoundComet(1, B, A);
+    expect(result.valid).toBe(true);
+    expect(result.baseToken).toBe(A);
+  });
+
+  test('returns { valid: false } when baseToken does not match want', async () => {
+    const { validateCompoundComet } = requireResolver(
+      jest.fn().mockReturnValue({ baseToken: jest.fn().mockResolvedValue(C) })
+    );
+    const result = await validateCompoundComet(1, B, A);
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/does not match/i);
+    expect(result.baseToken).toBe(C);
+  });
+
+  test('returns { valid: false } when baseToken() reverts', async () => {
+    const { validateCompoundComet } = requireResolver(
+      jest.fn().mockReturnValue({ baseToken: jest.fn().mockRejectedValue(new Error('not a comet')) })
+    );
+    const result = await validateCompoundComet(1, B, A);
+    expect(result.valid).toBe(false);
+  });
+
+  test('returns { valid: true } when no expectedWant provided', async () => {
+    const { validateCompoundComet } = requireResolver(
+      jest.fn().mockReturnValue({ baseToken: jest.fn().mockResolvedValue(A) })
+    );
+    const result = await validateCompoundComet(1, B, undefined);
+    expect(result.valid).toBe(true);
+  });
+});
+
+// ─── 13. validateSiloV2 (delegates to validateERC4626) ───────────────────────
+describe('validateSiloV2', () => {
+  afterEach(() => { jest.resetModules(); });
+
+  test('returns { valid: true, underlying } when asset() matches want', async () => {
+    const { validateSiloV2 } = requireResolver(
+      jest.fn().mockReturnValue({ asset: jest.fn().mockResolvedValue(A) })
+    );
+    const result = await validateSiloV2(1, B, A);
+    expect(result.valid).toBe(true);
+    expect(result.underlying).toBe(A);
+  });
+
+  test('returns { valid: false } when underlying does not match want', async () => {
+    const { validateSiloV2 } = requireResolver(
+      jest.fn().mockReturnValue({ asset: jest.fn().mockResolvedValue(C) })
+    );
+    const result = await validateSiloV2(1, B, A);
+    expect(result.valid).toBe(false);
+  });
+});
+
+// ─── 14. validateTokemak ──────────────────────────────────────────────────────
+describe('validateTokemak', () => {
+  afterEach(() => { jest.resetModules(); });
+
+  test('returns { ok: true, stakingToken, rewardToken, underlying } on success', async () => {
+    let callIdx = 0;
+    const { validateTokemak } = requireResolver(
+      jest.fn().mockImplementation(() => {
+        callIdx++;
+        if (callIdx === 1) {
+          return {
+            stakingToken: jest.fn().mockResolvedValue(B),
+            rewardToken:  jest.fn().mockResolvedValue(C),
+          };
+        }
+        // tokemak vault.asset()
+        return { asset: jest.fn().mockResolvedValue(A) };
+      })
+    );
+    const result = await validateTokemak(1, D);
+    expect(result.ok).toBe(true);
+    expect(result.stakingToken).toBe(B);
+    expect(result.rewardToken).toBe(C);
+    expect(result.underlying).toBe(A);
+  });
+
+  test('still returns ok: true when vault.asset() reverts (underlying = null)', async () => {
+    let callIdx = 0;
+    const { validateTokemak } = requireResolver(
+      jest.fn().mockImplementation(() => {
+        callIdx++;
+        if (callIdx === 1) {
+          return {
+            stakingToken: jest.fn().mockResolvedValue(B),
+            rewardToken:  jest.fn().mockResolvedValue(C),
+          };
+        }
+        return { asset: jest.fn().mockRejectedValue(new Error('not a vault')) };
+      })
+    );
+    const result = await validateTokemak(1, D);
+    expect(result.ok).toBe(true);
+    expect(result.underlying).toBeNull();
+  });
+
+  test('rejects when stakingToken() reverts (not a valid rewarder)', async () => {
+    const { validateTokemak } = requireResolver(
+      jest.fn().mockReturnValue({
+        stakingToken: jest.fn().mockRejectedValue(new Error('no stakingToken')),
+        rewardToken:  jest.fn().mockResolvedValue(C),
+      })
+    );
+    await expect(validateTokemak(1, D)).rejects.toThrow('no stakingToken');
+  });
+});

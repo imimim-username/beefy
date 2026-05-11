@@ -36,6 +36,13 @@ function strategyLabel(stratType) {
          stratType === 'convex'     ? 'Convex Finance (Curve LP)'         :
          stratType === 'curvegauge' ? 'Curve Native LiquidityGauge'       :
          stratType === 'stakedao'   ? 'StakeDAO Gauge (sd-gauge)'         :
+         stratType === 'erc4626'    ? 'ERC-4626 Vault'                    :
+         stratType === 'morpho'     ? 'Morpho Vault (ERC-4626 Merkl)'     :
+         stratType === 'aave'       ? 'Aave v3 aToken'                    :
+         stratType === 'compound'   ? 'Compound V3 Comet'                 :
+         stratType === 'silov2'     ? 'Silo V2 Market'                    :
+         stratType === 'pendle'     ? 'Pendle PT Vault'                   :
+         stratType === 'tokemak'    ? 'Tokemak Autopool'                  :
          stratType || '?';
 }
 
@@ -49,6 +56,17 @@ export function Step7Review({ form, onDryRun, onBack, onJumpTo }) {
   const isCurveGauge = stratType === 'curvegauge';
   const isStakeDao   = stratType === 'stakedao';
   const usesCurvePool = isConvex || isCurveGauge || isStakeDao;
+  const isSingleAsset = ['erc4626', 'morpho', 'aave', 'compound', 'silov2', 'pendle', 'tokemak'].includes(stratType);
+  const hasMerkl       = stratType === 'erc4626' || stratType === 'morpho';
+  const hasCompoundDist = stratType === 'compound';
+  const hasSiloGauge   = stratType === 'silov2';
+  const stakingLabel   =
+    stratType === 'erc4626' || stratType === 'morpho' ? 'Vault Address'    :
+    stratType === 'aave'                               ? 'aToken Address'   :
+    stratType === 'compound'                           ? 'Comet Address'    :
+    stratType === 'silov2'                             ? 'Silo Address'     :
+    stratType === 'tokemak'                            ? 'Rewarder Address' :
+    'Staking Contract';
 
   // Build token map for route display
   const tokenMap = {};
@@ -87,12 +105,21 @@ export function Step7Review({ form, onDryRun, onBack, onJumpTo }) {
 
       {/* LP / staking info */}
       <div className="result-card pixel-box" style={{ marginBottom: '16px' }}>
-        <SectionHeader label="LP & STAKING" onEdit={onJumpTo} stepIndex={1} />
-        <Row label="LP Token"        value={lp?.lpSymbol || '?'} />
-        <Row label="LP Address"      value={form.want} addr />
-        <Row label="Token 0"         value={lp?.token0?.symbol} />
-        <Row label="Token 1"         value={lp?.token1?.symbol} />
-        {lp?.token2 && <Row label="Token 2" value={lp.token2.symbol} />}
+        <SectionHeader label={isSingleAsset ? 'ASSET & STAKING' : 'LP & STAKING'} onEdit={onJumpTo} stepIndex={1} />
+        {isSingleAsset ? (
+          <>
+            <Row label="Asset Symbol"  value={lp?.lpSymbol || lp?.token0?.symbol || '?'} />
+            <Row label="Asset Address" value={form.want} addr />
+          </>
+        ) : (
+          <>
+            <Row label="LP Token"  value={lp?.lpSymbol || '?'} />
+            <Row label="LP Address" value={form.want} addr />
+            <Row label="Token 0"   value={lp?.token0?.symbol} />
+            <Row label="Token 1"   value={lp?.token1?.symbol} />
+            {lp?.token2 && <Row label="Token 2" value={lp.token2.symbol} />}
+          </>
+        )}
 
         {/* Chef */}
         {stratType === 'chef' && <Row label="Pool ID" value={String(form.poolId)} />}
@@ -136,8 +163,25 @@ export function Step7Review({ form, onDryRun, onBack, onJumpTo }) {
           <Row label="Balancer v3 Router" value={form.balancerV3Router} addr />
         )}
 
-        {!isCurveGauge && !isStakeDao && (
+        {!isCurveGauge && !isStakeDao && !isSingleAsset && (
           <Row label="Staking Contract" value={form.staking} addr />
+        )}
+        {isSingleAsset && stratType !== 'pendle' && (
+          <Row label={stakingLabel} value={form.staking} addr />
+        )}
+
+        {/* Single-asset optional fields */}
+        {hasMerkl && form.merkl && (
+          <Row label="Merkl Claimer" value={form.merkl} addr />
+        )}
+        {hasCompoundDist && form.compoundDistributor && (
+          <Row label="Compound Distributor" value={form.compoundDistributor} addr />
+        )}
+        {hasSiloGauge && form.siloGauge && (
+          <Row label="Silo Gauge" value={form.siloGauge} addr />
+        )}
+        {stratType === 'pendle' && form.depositToken && (
+          <Row label="Deposit Token" value={form.depositToken} addr />
         )}
       </div>
 
@@ -167,8 +211,8 @@ export function Step7Review({ form, onDryRun, onBack, onJumpTo }) {
           </div>
         )}
 
-        {/* LP routes — chef / gauge only */}
-        {!isAura && !usesCurvePool && (
+        {/* LP routes — chef / gauge only (not single-asset) */}
+        {!isAura && !usesCurvePool && !isSingleAsset && (
           <>
             <div className="result-card__row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
               <div className="result-card__key">→ LP0 route</div>
@@ -179,6 +223,16 @@ export function Step7Review({ form, onDryRun, onBack, onJumpTo }) {
               <RouteDisplay route={routes.outputToLp1Route} tokens={tokenMap} />
             </div>
           </>
+        )}
+
+        {/* Single-asset: note that swap goes directly into the vault */}
+        {isSingleAsset && (
+          <div className="result-card__row">
+            <div className="result-card__key" style={{ color: 'var(--cyan)' }}>Compounding</div>
+            <div className="result-card__value" style={{ color: 'var(--cyan)', fontSize: '7px' }}>
+              Rewards swap → want → re-deposit into vault (single-asset, no LP minting)
+            </div>
+          </div>
         )}
 
         {/* Aura note */}

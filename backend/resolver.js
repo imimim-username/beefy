@@ -279,6 +279,7 @@ async function resolveLpToken(chainId, lpAddress) {
   return {
     lpAddress: checksummed,
     lpSymbol,
+    lpType: isStable !== undefined ? 'solidly' : 'univ2',
     token0: t0,
     token1: t1,
     isStable: isStable ?? undefined,
