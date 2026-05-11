@@ -102,6 +102,9 @@ const FACTORY_DESCRIPTIONS = {
 // All strategy types that use the StrategyFactory + BeefySwapper pattern
 const FACTORY_TYPES = new Set(['aura', 'gauge', 'convex', 'curvegauge', 'stakedao']);
 
+// Single-asset strategies — no route config needed; depositToken = want (set automatically)
+const SINGLE_ASSET_TYPES = new Set(['erc4626', 'morpho', 'aave', 'compound', 'silov2']);
+
 // Known major tokens that BeefySwapper commonly has routes for (by lowercase symbol).
 // We can't verify on-chain, but these are standard across Beefy deployments.
 const BEEFY_SWAPPER_KNOWN_SYMBOLS = new Set([
@@ -421,8 +424,9 @@ function FactoryDepositTokenStep({ form, setForm }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function Step5Routes({ form, setForm, onNext, onBack }) {
-  const stratType   = form.strategyType;
-  const isFactory   = FACTORY_TYPES.has(stratType);
+  const stratType      = form.strategyType;
+  const isFactory      = FACTORY_TYPES.has(stratType);
+  const isSingleAsset  = SINGLE_ASSET_TYPES.has(stratType);
 
   const [loading, setLoading] = useState(false);
   const [routes, setRoutes]   = useState(form.routes || null);
@@ -447,9 +451,20 @@ export function Step5Routes({ form, setForm, onNext, onBack }) {
   }
   if (nativeToken) tokenMap[nativeToken.toLowerCase()] = { symbol: nativeSymbol };
 
+  /* ── Auto-set depositToken for single-asset strategies ──────────────────── */
+  useEffect(() => {
+    if (!isSingleAsset) return;
+    // For single-asset strategies, depositToken is always the want token itself.
+    // The deploy scripts set this internally, but we store it in form for Step7 display.
+    if (form.want && !form.depositToken) {
+      setForm(f => ({ ...f, depositToken: form.want }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSingleAsset]);
+
   /* ── Auto-suggest routes on mount (chef only) ─────────────────────────────── */
   useEffect(() => {
-    if (isFactory) return; // factory strategies use depositToken picker instead
+    if (isFactory || isSingleAsset) return; // factory/single-asset don't use route inputs
     if (routes) return;
     if (!primaryReward || !nativeToken) return;
     if (!lp0 || !lp1) return;
@@ -485,7 +500,10 @@ export function Step5Routes({ form, setForm, onNext, onBack }) {
 
   /* ── canProceed ────────────────────────────────────────────────────────────── */
   let canProceed = false;
-  if (isFactory) {
+  if (isSingleAsset) {
+    // Single-asset strategies: always proceed — no route config needed
+    canProceed = true;
+  } else if (isFactory) {
     // Factory strategies: need a valid non-zero depositToken
     const dt = form.depositToken || '';
     canProceed = /^0x[0-9a-fA-F]{40}$/.test(dt) && dt !== '0x0000000000000000000000000000000000000000';
@@ -502,22 +520,47 @@ export function Step5Routes({ form, setForm, onNext, onBack }) {
     <PixelBox variant="gold" style={{ padding: '24px' }}>
       <div style={{ marginBottom: '20px' }}>
         <div style={{ color: 'var(--gold)', fontSize: '11px', marginBottom: '8px' }}>
-          ▶ STEP 5 — {isFactory ? 'DEPOSIT TOKEN' : 'SWAP ROUTES'}
+          ▶ STEP 5 — {isSingleAsset ? 'NO ROUTES NEEDED' : isFactory ? 'DEPOSIT TOKEN' : 'SWAP ROUTES'}
         </div>
         <div style={{ fontSize: '7px', color: 'var(--white)', marginBottom: '8px' }}>
-          {isFactory
-            ? 'This strategy uses BeefySwapper to handle all reward → native swaps automatically. You only need to choose which pool token it deposits to compound.'
-            : 'Routes tell the strategy how to swap reward tokens into LP components. We auto-suggest them — review and edit if needed.'}
+          {isSingleAsset
+            ? 'Single-asset supply strategies do not require swap route configuration.'
+            : isFactory
+              ? 'This strategy uses BeefySwapper to handle all reward → native swaps automatically. You only need to choose which pool token it deposits to compound.'
+              : 'Routes tell the strategy how to swap reward tokens into LP components. We auto-suggest them — review and edit if needed.'}
         </div>
       </div>
 
+      {/* ── Single-asset strategies: no route config needed ───────────────────── */}
+      {isSingleAsset && (
+        <PixelBox style={{ padding: '14px', marginBottom: '16px' }}>
+          <div style={{ fontSize: '7px', color: 'var(--cyan)', lineHeight: '1.8' }}>
+            ✓ <strong>No route configuration required.</strong>
+            <br /><br />
+            Single-asset strategies ({stratType.toUpperCase()}) compound by:
+            <br />
+            1. Claiming protocol rewards (if any)
+            <br />
+            2. Swapping all rewards → native via BeefySwapper
+            <br />
+            3. Swapping native → <strong>{form.lpInfo?.token0?.symbol || 'want'}</strong> (the deposit asset)
+            <br />
+            4. Re-supplying to the protocol to compound yield
+            <br /><br />
+            <span style={{ color: '#888' }}>
+              The deposit token is automatically set to the want asset: <code>{form.want || '—'}</code>
+            </span>
+          </div>
+        </PixelBox>
+      )}
+
       {/* ── Factory strategies: deposit token picker ──────────────────────────── */}
-      {isFactory && (
+      {!isSingleAsset && isFactory && (
         <FactoryDepositTokenStep form={form} setForm={setForm} />
       )}
 
       {/* ── Chef: route inputs ────────────────────────────────────────────────── */}
-      {!isFactory && (
+      {!isSingleAsset && !isFactory && (
         <>
           {loading && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--cyan)' }}>

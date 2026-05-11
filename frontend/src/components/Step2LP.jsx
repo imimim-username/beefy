@@ -43,9 +43,10 @@ export function Step2LP({ form, setForm, onNext, onBack }) {
         setLpInfo(res);
         setForm(f => ({ ...f, want: res.lpAddress, lpInfo: res }));
         setStatus('ok');
-        const typeTag = res.lpType === 'balancer'
-          ? ` [Balancer v${res.balancerVersion || 2}]`
-          : res.lpType === 'curve' ? ' [Curve]' : '';
+        const typeTag =
+          res.lpType === 'single'  ? ' [SINGLE ASSET]'                     :
+          res.lpType === 'balancer'? ` [Balancer v${res.balancerVersion || 2}]` :
+          res.lpType === 'curve'   ? ' [Curve]'                             : '';
         const tokens = [res.token0?.symbol, res.token1?.symbol, res.token2?.symbol].filter(Boolean).join(' / ');
         setMsg(`Found: ${tokens}${typeTag}`);
       })
@@ -70,11 +71,12 @@ export function Step2LP({ form, setForm, onNext, onBack }) {
     <PixelBox variant="cyan" style={{ padding: '24px' }}>
       <div style={{ marginBottom: '20px' }}>
         <div style={{ color: 'var(--cyan)', fontSize: '11px', marginBottom: '8px' }}>
-          ▶ STEP 2 — LP TOKEN
+          ▶ STEP 2 — LP TOKEN / ASSET
         </div>
         <div style={{ fontSize: '7px', color: 'var(--white)', marginBottom: '16px' }}>
-          Enter the address of the LP token you want to farm.<br />
-          This is the token that gets staked into the chef or gauge.
+          Enter the address of the LP token you want to farm, or a single asset token
+          (USDC, WETH…) for supply strategies like Aave, Morpho, Compound V3, or Silo V2.<br />
+          This is the token that gets deposited into the vault.
         </div>
       </div>
 
@@ -169,46 +171,70 @@ export function Step2LP({ form, setForm, onNext, onBack }) {
         <PixelBox style={{ padding: '14px', marginBottom: '16px' }}>
           <div style={{ fontSize: '7px', display: 'grid', gap: '8px' }}>
             <div>
-              <span style={{ color: 'var(--gold)' }}>LP Symbol: </span>
+              <span style={{ color: 'var(--gold)' }}>{lpInfo.lpType === 'single' ? 'Token: ' : 'LP Symbol: '}</span>
               <span className="tag tag--cyan">{lpInfo.lpSymbol}</span>
             </div>
             {lpInfo.lpType && (
               <div>
-                <span style={{ color: 'var(--gold)' }}>Pool type: </span>
+                <span style={{ color: 'var(--gold)' }}>Type: </span>
                 <span className="tag tag--cyan">
-                  {lpInfo.lpType === 'balancer'
-                    ? `BALANCER V${lpInfo.balancerVersion || 2}`
-                    : lpInfo.lpType.toUpperCase()}
+                  {lpInfo.lpType === 'single'   ? 'SINGLE ASSET'                       :
+                   lpInfo.lpType === 'balancer' ? `BALANCER V${lpInfo.balancerVersion || 2}` :
+                   lpInfo.lpType.toUpperCase()}
                 </span>
               </div>
             )}
-            {lpInfo.balancerVersion === 3 && (
-              <div style={{ padding: '8px', background: 'var(--dark)', border: '1px solid var(--gold)', borderRadius: '2px' }}>
-                <div style={{ fontSize: '7px', color: 'var(--gold)' }}>
-                  ⚠ Balancer v3 pool detected. The current Aura strategy contracts
-                  target the Balancer v2 Vault (<code>joinPool</code> interface).
-                  Balancer v3 pools use a different join mechanism and are not yet
-                  supported by the included strategy contract. Proceed only if you
-                  have a compatible v3-aware strategy.
+
+            {/* Single-asset: show one token card + explanation */}
+            {lpInfo.lpType === 'single' && lpInfo.token0 && (
+              <>
+                <div style={{ padding: '8px', background: 'var(--dark)', border: '1px solid var(--cyan)' }}>
+                  <div style={{ color: 'var(--gold)', marginBottom: '4px' }}>ASSET</div>
+                  <div className="tag tag--gold">{lpInfo.token0.symbol}</div>
+                  <div className="addr" style={{ marginTop: '4px' }}>{lpInfo.token0.address}</div>
+                  {lpInfo.token0.name && (
+                    <div style={{ color: '#888', marginTop: '2px' }}>{lpInfo.token0.name}</div>
+                  )}
                 </div>
-              </div>
+                <div style={{ color: 'var(--cyan)', fontSize: '6px', lineHeight: '1.6' }}>
+                  ℹ Single-asset token detected. In the next step you'll choose a
+                  supply strategy: Aave, Morpho, Compound V3, Silo V2, or any ERC-4626 vault.
+                </div>
+              </>
             )}
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${lpInfo.token2 ? 3 : 2}, 1fr)`, gap: '8px' }}>
-              {[lpInfo.token0, lpInfo.token1, lpInfo.token2].filter(Boolean).map((tok, i) => (
-                <div key={i}>
-                  <div style={{ color: 'var(--gold)', marginBottom: '4px' }}>TOKEN {i}</div>
-                  <div className="tag tag--gold">{tok.symbol}</div>
-                  <div className="addr" style={{ marginTop: '4px' }}>{tok.address.slice(0, 20)}…</div>
+
+            {/* LP types: show token grid */}
+            {lpInfo.lpType !== 'single' && (
+              <>
+                {lpInfo.balancerVersion === 3 && (
+                  <div style={{ padding: '8px', background: 'var(--dark)', border: '1px solid var(--gold)', borderRadius: '2px' }}>
+                    <div style={{ fontSize: '7px', color: 'var(--gold)' }}>
+                      ⚠ Balancer v3 pool detected. The current Aura strategy contracts
+                      target the Balancer v2 Vault (<code>joinPool</code> interface).
+                      Balancer v3 pools use a different join mechanism and are not yet
+                      supported by the included strategy contract. Proceed only if you
+                      have a compatible v3-aware strategy.
+                    </div>
+                  </div>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${lpInfo.token2 ? 3 : 2}, 1fr)`, gap: '8px' }}>
+                  {[lpInfo.token0, lpInfo.token1, lpInfo.token2].filter(Boolean).map((tok, i) => (
+                    <div key={i}>
+                      <div style={{ color: 'var(--gold)', marginBottom: '4px' }}>TOKEN {i}</div>
+                      <div className="tag tag--gold">{tok.symbol}</div>
+                      <div className="addr" style={{ marginTop: '4px' }}>{tok.address.slice(0, 20)}…</div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            {lpInfo.isStable !== undefined && (
-              <div>
-                <span style={{ color: 'var(--gold)' }}>Pair type: </span>
-                <span className={`tag ${lpInfo.isStable ? 'tag--cyan' : 'tag--gold'}`}>
-                  {lpInfo.isStable ? 'STABLE' : 'VOLATILE'}
-                </span>
-              </div>
+                {lpInfo.isStable !== undefined && (
+                  <div>
+                    <span style={{ color: 'var(--gold)' }}>Pair type: </span>
+                    <span className={`tag ${lpInfo.isStable ? 'tag--cyan' : 'tag--gold'}`}>
+                      {lpInfo.isStable ? 'STABLE' : 'VOLATILE'}
+                    </span>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </PixelBox>

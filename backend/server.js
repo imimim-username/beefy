@@ -6,7 +6,7 @@ const cors    = require('cors');
 const morgan  = require('morgan');
 
 const { CHAINS }      = require('./chains.js');
-const { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, getCurveCoin, getAllCurveCoins, checkSwapperRoute, suggestRoutes, resolveToken, findPoolByLp, detectRewardTokens } = require('./resolver.js');
+const { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, validateERC4626, validateAToken, validateCompoundComet, validateSiloV2, getCurveCoin, getAllCurveCoins, checkSwapperRoute, suggestRoutes, resolveToken, findPoolByLp, detectRewardTokens } = require('./resolver.js');
 const { dryRun, execute } = require('./deployer.js');
 const registry = require('./tokenRegistry.js');
 
@@ -124,6 +124,58 @@ app.get('/api/validate-stakedao', async (req, res) => {
   if (!chainId || !gauge) return res.status(400).json({ ok: false, error: 'chainId and gauge required' });
   try {
     const result = await validateCurveGauge(Number(chainId), gauge);
+    res.json({ ok: result.valid, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Validate ERC-4626 vault (ERC4626 / ERC4626Merkl / Morpho / MorphoMerkl) ──
+// GET /api/validate-erc4626?chainId=1&vault=0x...&want=0x...
+app.get('/api/validate-erc4626', async (req, res) => {
+  const { chainId, vault, want } = req.query;
+  if (!chainId || !vault) return res.status(400).json({ ok: false, error: 'chainId and vault required' });
+  try {
+    const result = await validateERC4626(Number(chainId), vault, want || undefined);
+    res.json({ ok: result.valid, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Validate Aave v3 aToken ───────────────────────────────────────────────────
+// GET /api/validate-aave?chainId=1&aToken=0x...&want=0x...
+app.get('/api/validate-aave', async (req, res) => {
+  const { chainId, aToken, want } = req.query;
+  if (!chainId || !aToken) return res.status(400).json({ ok: false, error: 'chainId and aToken required' });
+  try {
+    const result = await validateAToken(Number(chainId), aToken, want || undefined);
+    res.json({ ok: result.valid, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Validate Compound V3 Comet ────────────────────────────────────────────────
+// GET /api/validate-compound?chainId=1&comet=0x...&want=0x...
+app.get('/api/validate-compound', async (req, res) => {
+  const { chainId, comet, want } = req.query;
+  if (!chainId || !comet) return res.status(400).json({ ok: false, error: 'chainId and comet required' });
+  try {
+    const result = await validateCompoundComet(Number(chainId), comet, want || undefined);
+    res.json({ ok: result.valid, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Validate Silo V2 market ───────────────────────────────────────────────────
+// GET /api/validate-silov2?chainId=1&silo=0x...&want=0x...
+app.get('/api/validate-silov2', async (req, res) => {
+  const { chainId, silo, want } = req.query;
+  if (!chainId || !silo) return res.status(400).json({ ok: false, error: 'chainId and silo required' });
+  try {
+    const result = await validateSiloV2(Number(chainId), silo, want || undefined);
     res.json({ ok: result.valid, ...result });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });

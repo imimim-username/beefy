@@ -18,6 +18,10 @@ export const api = {
   validateConvex:     (chainId, booster, pid) => req('GET',  `/validate-convex?chainId=${chainId}&booster=${booster}&pid=${pid}`),
   validateCurveGauge: (chainId, gauge)        => req('GET',  `/validate-curvegauge?chainId=${chainId}&gauge=${gauge}`),
   validateStakeDao:   (chainId, gauge)        => req('GET',  `/validate-stakedao?chainId=${chainId}&gauge=${gauge}`),
+  validateERC4626:    (chainId, vault, want)  => req('GET',  `/validate-erc4626?chainId=${chainId}&vault=${vault}${want ? `&want=${want}` : ''}`),
+  validateAave:       (chainId, aToken, want) => req('GET',  `/validate-aave?chainId=${chainId}&aToken=${aToken}${want ? `&want=${want}` : ''}`),
+  validateCompound:   (chainId, comet, want)  => req('GET',  `/validate-compound?chainId=${chainId}&comet=${comet}${want ? `&want=${want}` : ''}`),
+  validateSiloV2:     (chainId, silo, want)   => req('GET',  `/validate-silov2?chainId=${chainId}&silo=${silo}${want ? `&want=${want}` : ''}`),
   curveCoin:          (chainId, pool, idx)    => req('GET',  `/curve-coin?chainId=${chainId}&curvePool=${pool}&coinIndex=${idx}`),
   findPoolId:         (chainId, booster, lp)  => req('GET',  `/find-pool-id?chainId=${chainId}&booster=${booster}&lp=${lp}`),
   rewardTokens:       (chainId, stratType, staking, rewardPool) =>

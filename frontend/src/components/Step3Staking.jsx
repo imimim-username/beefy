@@ -13,6 +13,15 @@ const STRATEGY_OPTS = [
   { id: 'stakedao',   label: '🟣 STAKEDAO',       desc: 'StakeDAO gauge (sd-gauge)'            },
 ];
 
+// Strategy options for single-asset tokens (supply / lending protocols)
+const SINGLE_ASSET_OPTS = [
+  { id: 'erc4626',  label: '📦 ERC-4626',    desc: 'Yearn v3, Spark, Sky, or any ERC-4626 vault'     },
+  { id: 'morpho',   label: '🟦 MORPHO',      desc: 'Morpho Blue vault (ERC-4626 compatible)'          },
+  { id: 'aave',     label: '👻 AAVE',        desc: 'Aave v3 supply-only (via aToken)'                 },
+  { id: 'compound', label: '🏦 COMPOUND V3', desc: 'Compound V3 Comet supply'                         },
+  { id: 'silov2',   label: '🏦 SILO V2',     desc: 'Silo V2 lending market (ERC-4626 compatible)'     },
+];
+
 // LP type → recommended strategy type(s) — shown as a suggestion banner in the UI
 const LP_TYPE_SUGGESTION = {
   solidly:  { primary: 'gauge',      label: '⚡ Solidly/Velodrome LP detected — Gauge strategy recommended.' },
@@ -40,14 +49,32 @@ const NEEDS_POOL_ID = new Set(['chef', 'aura', 'convex']);
 // Strategies where pool ID can be auto-detected by scanning the booster
 const AUTO_POOL_ID = new Set(['aura', 'convex']);
 
+// Single-asset strategy IDs — shown when lpType === 'single'
+const SINGLE_ASSET_IDS = new Set(['erc4626', 'morpho', 'aave', 'compound', 'silov2']);
+
+// Default strategy for each token type
+function defaultStrategyType(lpType) {
+  if (lpType === 'single') return 'erc4626';
+  return 'chef';
+}
+
 export function Step3Staking({ form, setForm, onNext, onBack }) {
   const chain = CHAINS_INFO[form.chainId];
+  const isSingleAsset = form.lpInfo?.lpType === 'single';
 
   /* ── local state ──────────────────────────────────────────────────────────── */
-  const [stratType,   setStratType]   = useState(form.strategyType || 'chef');
+  const [stratType,   setStratType]   = useState(
+    form.strategyType || defaultStrategyType(form.lpInfo?.lpType)
+  );
   const [stakingAddr, setStakingAddr] = useState(form.staking || '');
   const [poolId,      setPoolId]      = useState(form.poolId !== undefined ? String(form.poolId) : '');
   const [pendingFn,   setPendingFn]   = useState(form.pendingRewardsFunctionName || '');
+
+  // Single-asset extra fields
+  const [merklClaimer,        setMerklClaimer]        = useState(form.merkl            || '');
+  const [compoundDistributor, setCompoundDistributor] = useState(form.compoundDistributor || '');
+  const [siloGauge,           setSiloGauge]           = useState(form.siloGauge         || '');
+  const [harvestOnDeposit,    setHarvestOnDeposit]    = useState(form.harvestOnDeposit  ?? false);
 
   // Pool ID auto-detection state
   const [pidSearching,  setPidSearching]  = useState(false);
@@ -134,42 +161,62 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
   /* ── main staking validation ──────────────────────────────────────────────── */
   useEffect(() => {
     if (!debouncedStaking || debouncedStaking.length < 42 || !form.chainId) return;
+
+    // LP strategies that require pool ID: skip until pool ID is set
     if (NEEDS_POOL_ID.has(stratType) && poolId.trim() === '') return;
+
+    // CompoundV3: also requires distributor address before we can proceed
+    if (stratType === 'compound' && compoundDistributor.length < 42) return;
 
     setStatus('loading');
     setMsg('Validating…');
 
     let validate;
-    if      (stratType === 'chef')       validate = api.validateChef(form.chainId, debouncedStaking, poolId);
-    else if (stratType === 'gauge')      validate = api.validateGauge(form.chainId, debouncedStaking);
-    else if (stratType === 'aura')       validate = api.validateAura(form.chainId, debouncedStaking, poolId);
-    else if (stratType === 'convex')     validate = api.validateConvex(form.chainId, debouncedStaking, poolId);
-    else if (stratType === 'curvegauge') validate = api.validateCurveGauge(form.chainId, debouncedStaking);
-    else                                 validate = api.validateStakeDao(form.chainId, debouncedStaking);
+    if (SINGLE_ASSET_IDS.has(stratType)) {
+      // Single-asset strategies — validate the protocol vault/market/token
+      const want = form.want || undefined;
+      if      (stratType === 'erc4626')  validate = api.validateERC4626(form.chainId, debouncedStaking, want);
+      else if (stratType === 'morpho')   validate = api.validateERC4626(form.chainId, debouncedStaking, want); // same interface
+      else if (stratType === 'aave')     validate = api.validateAave(form.chainId, debouncedStaking, want);
+      else if (stratType === 'compound') validate = api.validateCompound(form.chainId, debouncedStaking, want);
+      else                               validate = api.validateSiloV2(form.chainId, debouncedStaking, want);
+    } else if (stratType === 'chef')       { validate = api.validateChef(form.chainId, debouncedStaking, poolId); }
+    else if   (stratType === 'gauge')      { validate = api.validateGauge(form.chainId, debouncedStaking); }
+    else if   (stratType === 'aura')       { validate = api.validateAura(form.chainId, debouncedStaking, poolId); }
+    else if   (stratType === 'convex')     { validate = api.validateConvex(form.chainId, debouncedStaking, poolId); }
+    else if   (stratType === 'curvegauge') { validate = api.validateCurveGauge(form.chainId, debouncedStaking); }
+    else                                   { validate = api.validateStakeDao(form.chainId, debouncedStaking); }
 
     validate.then(res => {
       if (!res.ok) { setStatus('error'); setMsg(res.error || 'Validation failed'); return; }
 
-      // LP cross-check (where possible)
-      const lpToken = res.lpInPool || res.stakingToken;
-      if (lpToken && form.want && lpToken.toLowerCase() !== form.want.toLowerCase()) {
-        setStatus('error');
-        setMsg(`⚠ Gauge LP (${lpToken.slice(0, 10)}…) differs from your LP token`);
-        return;
-      }
-
-      if (stratType === 'chef') {
-        setMsg(`Chef OK — ${res.poolLength} pools · Pool LP: ${res.lpInPool?.slice(0, 10)}…`);
-      } else if (stratType === 'gauge') {
-        setMsg(`Gauge OK${res.stakingToken ? ` · staking token: ${res.stakingToken.slice(0, 10)}…` : ''}`);
-      } else if (stratType === 'aura') {
-        setMsg(`Aura OK — ${res.poolLength} pools · BPT: ${res.lpInPool?.slice(0, 10)}…`);
-      } else if (stratType === 'convex') {
-        setMsg(`Convex OK — ${res.poolLength} pools · LP: ${res.lpInPool?.slice(0, 10)}…`);
-      } else if (stratType === 'curvegauge') {
-        setMsg(`Curve gauge OK${res.stakingToken ? ` · lp_token: ${res.stakingToken.slice(0, 10)}…` : ''}`);
+      // Build status message
+      if (stratType === 'erc4626' || stratType === 'morpho') {
+        const u = res.underlying;
+        setMsg(`${stratType === 'morpho' ? 'Morpho' : 'ERC-4626'} vault OK · underlying: ${u ? u.slice(0, 10) + '…' : '✓'}`);
+      } else if (stratType === 'aave') {
+        const u = res.underlying;
+        setMsg(`aToken OK · underlying: ${u ? u.slice(0, 10) + '…' : '✓'}`);
+      } else if (stratType === 'compound') {
+        const bt = res.baseToken;
+        setMsg(`Comet OK · baseToken: ${bt ? bt.slice(0, 10) + '…' : '✓'}`);
+      } else if (stratType === 'silov2') {
+        const u = res.underlying;
+        setMsg(`Silo V2 OK · underlying: ${u ? u.slice(0, 10) + '…' : '✓'}`);
       } else {
-        setMsg(`StakeDAO gauge OK${res.stakingToken ? ` · lp_token: ${res.stakingToken.slice(0, 10)}…` : ''}`);
+        // LP strategies
+        const lpToken = res.lpInPool || res.stakingToken;
+        if (lpToken && form.want && lpToken.toLowerCase() !== form.want.toLowerCase()) {
+          setStatus('error');
+          setMsg(`⚠ Gauge LP (${lpToken.slice(0, 10)}…) differs from your LP token`);
+          return;
+        }
+        if      (stratType === 'chef')       setMsg(`Chef OK — ${res.poolLength} pools · Pool LP: ${res.lpInPool?.slice(0, 10)}…`);
+        else if (stratType === 'gauge')      setMsg(`Gauge OK${res.stakingToken ? ` · staking token: ${res.stakingToken.slice(0, 10)}…` : ''}`);
+        else if (stratType === 'aura')       setMsg(`Aura OK — ${res.poolLength} pools · BPT: ${res.lpInPool?.slice(0, 10)}…`);
+        else if (stratType === 'convex')     setMsg(`Convex OK — ${res.poolLength} pools · LP: ${res.lpInPool?.slice(0, 10)}…`);
+        else if (stratType === 'curvegauge') setMsg(`Curve gauge OK${res.stakingToken ? ` · lp_token: ${res.stakingToken.slice(0, 10)}…` : ''}`);
+        else                                 setMsg(`StakeDAO gauge OK${res.stakingToken ? ` · lp_token: ${res.stakingToken.slice(0, 10)}…` : ''}`);
       }
 
       setStatus('ok');
@@ -179,19 +226,37 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         setCurvePool(res.pool);
       }
 
-      setForm(f => ({
-        ...f,
-        strategyType: stratType,
-        staking:      debouncedStaking,
-        poolId:       NEEDS_POOL_ID.has(stratType) ? Number(poolId) : undefined,
-        pendingRewardsFunctionName: stratType === 'chef' ? (pendingFn.trim() || undefined) : undefined,
-        isStable:     stratType === 'gauge' ? form.lpInfo?.isStable : undefined,
-        // Save rewardPool (crvRewards) so Step 4 can auto-detect reward tokens
-        rewardPool:   (stratType === 'aura' || stratType === 'convex') ? res.rewardPool : undefined,
-      }));
+      // Save common LP strategy fields
+      if (!SINGLE_ASSET_IDS.has(stratType)) {
+        setForm(f => ({
+          ...f,
+          strategyType: stratType,
+          staking:      debouncedStaking,
+          poolId:       NEEDS_POOL_ID.has(stratType) ? Number(poolId) : undefined,
+          pendingRewardsFunctionName: stratType === 'chef' ? (pendingFn.trim() || undefined) : undefined,
+          isStable:     stratType === 'gauge' ? form.lpInfo?.isStable : undefined,
+          rewardPool:   (stratType === 'aura' || stratType === 'convex') ? res.rewardPool : undefined,
+          // Clear single-asset fields
+          merkl: undefined, compoundDistributor: undefined, siloGauge: undefined, harvestOnDeposit: undefined,
+        }));
+      } else {
+        // Single-asset strategy fields
+        setForm(f => ({
+          ...f,
+          strategyType: stratType,
+          staking:      debouncedStaking,
+          merkl:               (stratType === 'erc4626' || stratType === 'morpho') ? (merklClaimer.trim() || undefined) : undefined,
+          compoundDistributor: stratType === 'compound' ? compoundDistributor.trim() : undefined,
+          siloGauge:           stratType === 'silov2'   ? (siloGauge.trim() || undefined) : undefined,
+          harvestOnDeposit:    (stratType === 'erc4626' || stratType === 'morpho' || stratType === 'aave') ? harvestOnDeposit : undefined,
+          // Clear LP strategy fields
+          poolId: undefined, pendingRewardsFunctionName: undefined, isStable: undefined, rewardPool: undefined,
+          curvePool: undefined, coinIndex: undefined, nCoins: undefined, convexCoin: undefined,
+        }));
+      }
     }).catch(e => { setStatus('error'); setMsg(e.message); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedStaking, stratType, poolId, form.chainId]);
+  }, [debouncedStaking, stratType, poolId, compoundDistributor, form.chainId]);
 
   /* ── Fetch ALL coins from Curve pool (for dropdown) ────────────────────────── */
   useEffect(() => {
@@ -244,14 +309,16 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
     setConvexCoin(null); setCoinStatus(''); setCoinMsg('');
     setAllCoins([]); setCoinsLoading(false);
     setPidSearching(false); setPidAutoMsg(''); setPidAutoFound(false);
+    setMerklClaimer(''); setCompoundDistributor(''); setSiloGauge('');
   }
 
   /* ── LP type suggestion + mismatch warning ────────────────────────────────── */
   const actualLpType    = form.lpInfo?.lpType || null;
-  const suggestion      = actualLpType ? LP_TYPE_SUGGESTION[actualLpType] : null;
+  const suggestion      = actualLpType && actualLpType !== 'single' ? LP_TYPE_SUGGESTION[actualLpType] : null;
   const compatibleTypes = LP_TYPE_COMPATIBLE[stratType] || [];
   // Only warn if we know the LP type AND it's incompatible with the chosen strategy
-  const lpMismatch      = actualLpType !== null && compatibleTypes.length > 0
+  // (single-asset strategies are always compatible with single-asset tokens)
+  const lpMismatch      = actualLpType !== null && actualLpType !== 'single' && compatibleTypes.length > 0
     && !compatibleTypes.includes(actualLpType);
 
   /* ── availability guards ──────────────────────────────────────────────────── */
@@ -265,42 +332,69 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
   }
 
   /* ── canProceed ───────────────────────────────────────────────────────────── */
-  const validationOk  = status === 'ok';
+  const validationOk   = status === 'ok';
   const curvePoolReady = validationOk && convexCoin !== null && nCoins !== '';
+  // CompoundV3 needs distributor address in addition to staking validation
+  const compoundReady  = validationOk && compoundDistributor.length >= 42;
   const canProceed =
-    (stratType === 'chef' || stratType === 'gauge') && validationOk ||
-    stratType === 'aura'                            && validationOk ||
+    SINGLE_ASSET_IDS.has(stratType) && stratType !== 'compound' && validationOk ||
+    stratType === 'compound'                        && compoundReady              ||
+    (stratType === 'chef' || stratType === 'gauge') && validationOk              ||
+    stratType === 'aura'                            && validationOk              ||
     USES_CURVE_POOL.has(stratType)                  && curvePoolReady;
 
   /* ── handleNext ───────────────────────────────────────────────────────────── */
   function handleNext() {
-    setForm(f => ({
-      ...f,
-      strategyType: stratType,
-      staking:      stakingAddr,
-      poolId:       NEEDS_POOL_ID.has(stratType) ? Number(poolId) : undefined,
-      pendingRewardsFunctionName: stratType === 'chef' ? (pendingFn.trim() || undefined) : undefined,
-      isStable:     stratType === 'gauge' ? form.lpInfo?.isStable : undefined,
-      curvePool:    USES_CURVE_POOL.has(stratType) ? curvePool    : undefined,
-      coinIndex:    USES_CURVE_POOL.has(stratType) ? Number(coinIndex) : undefined,
-      nCoins:       USES_CURVE_POOL.has(stratType) ? Number(nCoins)    : undefined,
-      convexCoin:   USES_CURVE_POOL.has(stratType) ? convexCoin   : undefined,
-      minterEnabled: stratType === 'curvegauge' ? true : stratType === 'stakedao' ? false : undefined,
-      minter: stratType === 'curvegauge' ? (chain?.beefyAddresses?.crvMinter || null) : undefined,
-      balancerV3Router: stratType === 'aura' && form.lpInfo?.balancerVersion === 3
-        ? (chain?.beefyAddresses?.balancerV3Router || null) : undefined,
-    }));
+    if (SINGLE_ASSET_IDS.has(stratType)) {
+      setForm(f => ({
+        ...f,
+        strategyType: stratType,
+        staking:      stakingAddr,
+        merkl:               (stratType === 'erc4626' || stratType === 'morpho') ? (merklClaimer.trim() || undefined) : undefined,
+        compoundDistributor: stratType === 'compound' ? compoundDistributor.trim() : undefined,
+        siloGauge:           stratType === 'silov2'   ? (siloGauge.trim() || undefined) : undefined,
+        harvestOnDeposit:    (stratType === 'erc4626' || stratType === 'morpho' || stratType === 'aave') ? harvestOnDeposit : undefined,
+        // Clear LP-only fields
+        poolId: undefined, pendingRewardsFunctionName: undefined, isStable: undefined, rewardPool: undefined,
+        curvePool: undefined, coinIndex: undefined, nCoins: undefined, convexCoin: undefined,
+        minterEnabled: undefined, minter: undefined, balancerV3Router: undefined,
+      }));
+    } else {
+      setForm(f => ({
+        ...f,
+        strategyType: stratType,
+        staking:      stakingAddr,
+        poolId:       NEEDS_POOL_ID.has(stratType) ? Number(poolId) : undefined,
+        pendingRewardsFunctionName: stratType === 'chef' ? (pendingFn.trim() || undefined) : undefined,
+        isStable:     stratType === 'gauge' ? form.lpInfo?.isStable : undefined,
+        curvePool:    USES_CURVE_POOL.has(stratType) ? curvePool    : undefined,
+        coinIndex:    USES_CURVE_POOL.has(stratType) ? Number(coinIndex) : undefined,
+        nCoins:       USES_CURVE_POOL.has(stratType) ? Number(nCoins)    : undefined,
+        convexCoin:   USES_CURVE_POOL.has(stratType) ? convexCoin   : undefined,
+        minterEnabled: stratType === 'curvegauge' ? true : stratType === 'stakedao' ? false : undefined,
+        minter: stratType === 'curvegauge' ? (chain?.beefyAddresses?.crvMinter || null) : undefined,
+        balancerV3Router: stratType === 'aura' && form.lpInfo?.balancerVersion === 3
+          ? (chain?.beefyAddresses?.balancerV3Router || null) : undefined,
+        // Clear single-asset fields
+        merkl: undefined, compoundDistributor: undefined, siloGauge: undefined, harvestOnDeposit: undefined,
+      }));
+    }
     onNext();
   }
 
   /* ── staking address label ────────────────────────────────────────────────── */
   const stakingLabel =
-    stratType === 'chef'       ? 'MasterChef Address'   :
-    stratType === 'gauge'      ? 'Gauge Address'         :
-    stratType === 'aura'       ? 'Aura Booster Address'  :
-    stratType === 'convex'     ? 'Convex Booster Address':
-    stratType === 'curvegauge' ? 'Curve Gauge Address'   :
-                                 'StakeDAO Gauge Address';
+    stratType === 'chef'       ? 'MasterChef Address'      :
+    stratType === 'gauge'      ? 'Gauge Address'            :
+    stratType === 'aura'       ? 'Aura Booster Address'     :
+    stratType === 'convex'     ? 'Convex Booster Address'   :
+    stratType === 'curvegauge' ? 'Curve Gauge Address'      :
+    stratType === 'stakedao'   ? 'StakeDAO Gauge Address'   :
+    stratType === 'erc4626'    ? 'ERC-4626 Vault Address'   :
+    stratType === 'morpho'     ? 'Morpho Blue Vault Address':
+    stratType === 'aave'       ? 'Aave aToken Address'      :
+    stratType === 'compound'   ? 'Compound V3 Comet Address':
+                                 'Silo V2 Market Address';
 
   /* ── pool ID label ────────────────────────────────────────────────────────── */
   const poolIdLabel =
@@ -313,15 +407,17 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
     <PixelBox variant="gold" style={{ padding: '24px' }}>
       <div style={{ marginBottom: '20px' }}>
         <div style={{ color: 'var(--gold)', fontSize: '11px', marginBottom: '8px' }}>
-          ▶ STEP 3 — STAKING CONTRACT
+          ▶ STEP 3 — {isSingleAsset ? 'SUPPLY STRATEGY' : 'STAKING CONTRACT'}
         </div>
         <div style={{ fontSize: '7px', color: 'var(--white)', marginBottom: '16px' }}>
-          Which contract stakes this LP token and earns rewards?
+          {isSingleAsset
+            ? 'Choose which protocol to supply this asset to for yield.'
+            : 'Which contract stakes this LP token and earns rewards?'}
         </div>
       </div>
 
-      {/* LP type suggestion banner */}
-      {suggestion && (
+      {/* LP type suggestion banner (LP strategies only) */}
+      {!isSingleAsset && suggestion && (
         <div style={{
           fontSize: '7px',
           color: 'var(--cyan)',
@@ -349,26 +445,44 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </div>
       )}
 
-      {/* Strategy type picker — 3×2 grid */}
-      <div style={{ marginBottom: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-        {STRATEGY_OPTS.map(opt => {
-          const unavailable = isUnavailable(opt.id);
-          return (
+      {/* Strategy type picker */}
+      {isSingleAsset ? (
+        /* Single-asset: 3×2 grid for supply strategies */
+        <div style={{ marginBottom: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+          {SINGLE_ASSET_OPTS.map(opt => (
             <button
               key={opt.id}
-              onClick={() => !unavailable && handleTypeChange(opt.id)}
+              onClick={() => handleTypeChange(opt.id)}
               className={`btn ${stratType === opt.id ? 'btn--gold' : ''}`}
-              disabled={unavailable}
-              style={{ flexDirection: 'column', display: 'flex', gap: '4px', opacity: unavailable ? 0.4 : 1 }}
+              style={{ flexDirection: 'column', display: 'flex', gap: '4px' }}
             >
               <div style={{ fontSize: '9px' }}>{opt.label}</div>
-              <div style={{ fontSize: '6px', fontFamily: 'sans-serif', opacity: 0.7 }}>
-                {unavailable ? 'Not on this chain' : opt.desc}
-              </div>
+              <div style={{ fontSize: '6px', fontFamily: 'sans-serif', opacity: 0.7 }}>{opt.desc}</div>
             </button>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      ) : (
+        /* LP strategies: existing 3×2 grid */
+        <div style={{ marginBottom: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+          {STRATEGY_OPTS.map(opt => {
+            const unavailable = isUnavailable(opt.id);
+            return (
+              <button
+                key={opt.id}
+                onClick={() => !unavailable && handleTypeChange(opt.id)}
+                className={`btn ${stratType === opt.id ? 'btn--gold' : ''}`}
+                disabled={unavailable}
+                style={{ flexDirection: 'column', display: 'flex', gap: '4px', opacity: unavailable ? 0.4 : 1 }}
+              >
+                <div style={{ fontSize: '9px' }}>{opt.label}</div>
+                <div style={{ fontSize: '6px', fontFamily: 'sans-serif', opacity: 0.7 }}>
+                  {unavailable ? 'Not on this chain' : opt.desc}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* LP type mismatch warning */}
       {lpMismatch && (
@@ -381,8 +495,21 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </PixelBox>
       )}
 
-      {/* Info banners */}
-      {(stratType === 'aura' || stratType === 'convex' || stratType === 'curvegauge' || stratType === 'stakedao') && (
+      {/* Single-asset info banners */}
+      {isSingleAsset && (
+        <PixelBox style={{ padding: '10px', marginBottom: '14px' }}>
+          <div style={{ fontSize: '7px', color: 'var(--cyan)' }}>
+            {stratType === 'erc4626'  && '📦 Wraps any ERC-4626 compatible vault (Yearn v3, Spark, Sky Savings Rate…). Optionally claims Merkl airdrop rewards.'}
+            {stratType === 'morpho'   && '🟦 Wraps a Morpho Blue vault (also ERC-4626). Optionally claims Merkl airdrop rewards via MorphoMerkl strategy.'}
+            {stratType === 'aave'     && '👻 Supplies the asset to Aave v3 and accrues interest via the aToken. Enter the aToken address (e.g. aOptUSDC).'}
+            {stratType === 'compound' && '🏦 Supplies the base token to a Compound V3 Comet and auto-claims COMP via the CometRewards distributor.'}
+            {stratType === 'silov2'   && '🏦 Supplies the asset to a Silo V2 lending market (ERC-4626 compatible). Optionally stakes in a gauge for extra rewards.'}
+          </div>
+        </PixelBox>
+      )}
+
+      {/* LP strategy info banners */}
+      {!isSingleAsset && (stratType === 'aura' || stratType === 'convex' || stratType === 'curvegauge' || stratType === 'stakedao') && (
         <PixelBox style={{ padding: '10px', marginBottom: '14px' }}>
           <div style={{ fontSize: '7px', color: 'var(--cyan)' }}>
             {stratType === 'aura'       && '🔷 Aura Finance: harvests BAL + AURA, joins Balancer pool (v2 or v3), restakes.'}
@@ -393,8 +520,8 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </PixelBox>
       )}
 
-      {/* Balancer v3 note */}
-      {stratType === 'aura' && form.lpInfo?.balancerVersion === 3 && (
+      {/* Balancer v3 note (LP only) */}
+      {!isSingleAsset && stratType === 'aura' && form.lpInfo?.balancerVersion === 3 && (
         <PixelBox style={{ padding: '10px', marginBottom: '14px' }}>
           <div style={{ fontSize: '7px', color: 'var(--cyan)' }}>
             ℹ Balancer v3 pool detected — the strategy will use the v3 Router
@@ -404,8 +531,8 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </PixelBox>
       )}
 
-      {/* Curve gauge: warn if no CRV Minter configured for this chain */}
-      {stratType === 'curvegauge' && !chain?.beefyAddresses?.crvMinter && (
+      {/* Curve gauge: warn if no CRV Minter configured for this chain (LP only) */}
+      {!isSingleAsset && stratType === 'curvegauge' && !chain?.beefyAddresses?.crvMinter && (
         <PixelBox variant="red" style={{ padding: '10px', marginBottom: '14px' }}>
           <div style={{ fontSize: '7px', color: 'var(--red)' }}>
             ⚠ No CRV Minter address configured for this chain. Curve native gauges on L2s
@@ -428,8 +555,87 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </div>
       </Field>
 
-      {/* ── Pool ID (chef / aura / convex) ──────────────────────────────────── */}
-      {NEEDS_POOL_ID.has(stratType) && (
+      {/* ── Single-asset: Merkl claimer (ERC4626 / Morpho) ─────────────────── */}
+      {isSingleAsset && (stratType === 'erc4626' || stratType === 'morpho') && (
+        <Field
+          label="Merkl Distributor Address (optional)"
+          hint={merklClaimer.trim()
+            ? 'MorphoMerkl / ERC4626Merkl strategy will be used — claims Merkl airdrop rewards'
+            : 'Leave empty if no Merkl rewards — uses plain Morpho / ERC4626 strategy'}
+          hintType={merklClaimer.trim() ? 'ok' : ''}
+        >
+          <input
+            className="pixel-input"
+            placeholder="0x… or leave blank"
+            value={merklClaimer}
+            onChange={e => setMerklClaimer(e.target.value)}
+          />
+        </Field>
+      )}
+
+      {/* ── Single-asset: Compound V3 distributor (required) ─────────────── */}
+      {isSingleAsset && stratType === 'compound' && (
+        <Field
+          label="CometRewards Distributor Address"
+          hint="The Compound V3 CometRewards contract address (required for COMP claims)"
+          hintType={compoundDistributor.length >= 42 ? 'ok' : ''}
+        >
+          <input
+            className={`pixel-input ${compoundDistributor.length > 0 && compoundDistributor.length < 42 ? 'error' : ''}`}
+            placeholder="0x…"
+            value={compoundDistributor}
+            onChange={e => { setCompoundDistributor(e.target.value); setStatus(''); setMsg(''); }}
+          />
+        </Field>
+      )}
+
+      {/* ── Single-asset: Silo V2 gauge (optional) ───────────────────────── */}
+      {isSingleAsset && stratType === 'silov2' && (
+        <Field
+          label="Silo Gauge Address (optional)"
+          hint={siloGauge.trim()
+            ? 'Strategy will stake into the gauge for extra rewards'
+            : 'Leave empty if no gauge — interest-only strategy'}
+          hintType={siloGauge.trim() ? 'ok' : ''}
+        >
+          <input
+            className="pixel-input"
+            placeholder="0x… or leave blank"
+            value={siloGauge}
+            onChange={e => setSiloGauge(e.target.value)}
+          />
+        </Field>
+      )}
+
+      {/* ── Single-asset: harvestOnDeposit toggle (ERC4626 / Morpho / Aave) ── */}
+      {isSingleAsset && (stratType === 'erc4626' || stratType === 'morpho' || stratType === 'aave') && (
+        <Field
+          label="Harvest On Deposit"
+          hint={harvestOnDeposit
+            ? 'Strategy will harvest rewards on every deposit — best for low-TVL vaults'
+            : 'Strategy only harvests when callFeeRecipient triggers — saves gas for high-TVL vaults'}
+        >
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              onClick={() => setHarvestOnDeposit(true)}
+              className={`btn ${harvestOnDeposit ? 'btn--gold' : ''}`}
+              style={{ width: '80px' }}
+            >
+              ON
+            </button>
+            <button
+              onClick={() => setHarvestOnDeposit(false)}
+              className={`btn ${!harvestOnDeposit ? 'btn--gold' : ''}`}
+              style={{ width: '80px' }}
+            >
+              OFF
+            </button>
+          </div>
+        </Field>
+      )}
+
+      {/* ── Pool ID (chef / aura / convex) — LP strategies only ────────────── */}
+      {!isSingleAsset && NEEDS_POOL_ID.has(stratType) && (
         <Field
           label={poolIdLabel}
           hint={
@@ -469,8 +675,8 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </Field>
       )}
 
-      {/* ── Chef: pending rewards function ──────────────────────────────────── */}
-      {stratType === 'chef' && (
+      {/* ── Chef: pending rewards function (LP only) ────────────────────────── */}
+      {!isSingleAsset && stratType === 'chef' && (
         <Field
           label="Pending Rewards Function (optional)"
           hint={pendingFn.trim()
@@ -487,8 +693,8 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </Field>
       )}
 
-      {/* ── Solidly Gauge: stable-pair info ─────────────────────────────────── */}
-      {stratType === 'gauge' && form.lpInfo?.isStable !== undefined && (
+      {/* ── Solidly Gauge: stable-pair info (LP only) ───────────────────────── */}
+      {!isSingleAsset && stratType === 'gauge' && form.lpInfo?.isStable !== undefined && (
         <PixelBox style={{ padding: '10px', marginBottom: '16px' }}>
           <div style={{ fontSize: '7px', color: 'var(--gold)' }}>
             Pair type detected: <span className="tag tag--cyan">{form.lpInfo.isStable ? 'STABLE' : 'VOLATILE'}</span>
@@ -497,8 +703,8 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </PixelBox>
       )}
 
-      {/* ── Curve pool fields (shown after validation succeeds) ──────────────── */}
-      {USES_CURVE_POOL.has(stratType) && status === 'ok' && (
+      {/* ── Curve pool fields (LP only, shown after validation succeeds) ──────── */}
+      {!isSingleAsset && USES_CURVE_POOL.has(stratType) && status === 'ok' && (
         <>
           <Field
             label="Curve Pool Contract Address"

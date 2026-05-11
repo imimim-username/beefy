@@ -240,17 +240,26 @@ async function resolveLpToken(chainId, lpAddress) {
         };
       } catch (_e5) { /* not Curve */ }
 
-      // ── Unknown LP type ────────────────────────────────────────────────────
-      let sym = '';
-      try {
-        const erc20 = new ethers.Contract(checksummed, ERC20_ABI, provider);
-        sym = await erc20.symbol();
-      } catch (_e6) { /* ignore */ }
-      throw new Error(
-        `Not a recognized LP token${sym ? ` (symbol: ${sym})` : ''} — ` +
-        `expected a Uniswap V2, Solidly, Balancer, or Curve pool. ` +
-        `Uniswap V3 and other custom AMMs are not supported.`
-      );
+      // ── Unknown LP — treat as single-asset ERC-20 token ──────────────────
+      // Return lpType: 'single' so the wizard can offer single-asset strategies
+      // (ERC-4626, Morpho, Aave, Compound V3, Silo V2) instead of LP strategies.
+      const erc20 = new ethers.Contract(checksummed, ERC20_ABI, provider);
+      const [singleSym, singleName, singleDec] = await Promise.all([
+        erc20.symbol().catch(() => '???'),
+        erc20.name().catch(() => 'Unknown Token'),
+        erc20.decimals().catch(() => 18),
+      ]);
+      return {
+        lpAddress:  checksummed,
+        lpSymbol:   singleSym,
+        lpType:     'single',
+        token0: {
+          address:  checksummed,
+          symbol:   singleSym,
+          name:     singleName,
+          decimals: Number(singleDec),
+        },
+      };
     }
   }
 
@@ -688,4 +697,102 @@ async function checkSwapperRoute(chainId, depositToken, swapperAddr, nativeAddr)
   }
 }
 
-module.exports = { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, getCurveCoin, getAllCurveCoins, checkSwapperRoute, suggestRoutes, resolveToken, getProvider, findPoolByLp, detectRewardTokens };
+/**
+ * Validate an ERC-4626 vault and optionally confirm its underlying asset matches want.
+ * Used for ERC4626, ERC4626Merkl, Morpho, MorphoMerkl strategy types.
+ * Returns { valid, underlying? }
+ */
+async function validateERC4626(chainId, vaultAddr, expectedWant) {
+  const provider = getProvider(chainId);
+  const abi = ['function asset() view returns (address)'];
+  const vault = new ethers.Contract(ethers.getAddress(vaultAddr), abi, provider);
+  try {
+    const underlying = await vault.asset();
+    if (expectedWant && underlying.toLowerCase() !== expectedWant.toLowerCase()) {
+      return {
+        valid: false,
+        error: `Vault underlying (${underlying}) does not match want (${expectedWant})`,
+        underlying,
+      };
+    }
+    return { valid: true, underlying };
+  } catch (e) {
+    return { valid: false, error: e.message };
+  }
+}
+
+/**
+ * Validate an Aave v3 aToken and optionally confirm its underlying asset matches want.
+ * Returns { valid, underlying? }
+ */
+async function validateAToken(chainId, aTokenAddr, expectedWant) {
+  const provider = getProvider(chainId);
+  const abi = ['function UNDERLYING_ASSET_ADDRESS() view returns (address)'];
+  const aToken = new ethers.Contract(ethers.getAddress(aTokenAddr), abi, provider);
+  try {
+    const underlying = await aToken.UNDERLYING_ASSET_ADDRESS();
+    if (expectedWant && underlying.toLowerCase() !== expectedWant.toLowerCase()) {
+      return {
+        valid: false,
+        error: `aToken underlying (${underlying}) does not match want (${expectedWant})`,
+        underlying,
+      };
+    }
+    return { valid: true, underlying };
+  } catch (e) {
+    return { valid: false, error: e.message };
+  }
+}
+
+/**
+ * Validate a Compound V3 Comet and optionally confirm its base token matches want.
+ * Returns { valid, baseToken? }
+ */
+async function validateCompoundComet(chainId, cometAddr, expectedWant) {
+  const provider = getProvider(chainId);
+  const abi = ['function baseToken() view returns (address)'];
+  const comet = new ethers.Contract(ethers.getAddress(cometAddr), abi, provider);
+  try {
+    const baseToken = await comet.baseToken();
+    if (expectedWant && baseToken.toLowerCase() !== expectedWant.toLowerCase()) {
+      return {
+        valid: false,
+        error: `Comet baseToken (${baseToken}) does not match want (${expectedWant})`,
+        baseToken,
+      };
+    }
+    return { valid: true, baseToken };
+  } catch (e) {
+    return { valid: false, error: e.message };
+  }
+}
+
+/**
+ * Validate a Silo V2 market and optionally confirm its underlying asset matches want.
+ * Silo V2 markets are ERC-4626 compatible; they expose asset() like any other ERC-4626 vault.
+ * Returns { valid, underlying? }
+ */
+async function validateSiloV2(chainId, siloAddr, expectedWant) {
+  return validateERC4626(chainId, siloAddr, expectedWant);
+}
+
+module.exports = {
+  resolveLpToken,
+  validateChef,
+  validateGauge,
+  validateAura,
+  validateConvex,
+  validateCurveGauge,
+  validateERC4626,
+  validateAToken,
+  validateCompoundComet,
+  validateSiloV2,
+  getCurveCoin,
+  getAllCurveCoins,
+  checkSwapperRoute,
+  suggestRoutes,
+  resolveToken,
+  getProvider,
+  findPoolByLp,
+  detectRewardTokens,
+};
