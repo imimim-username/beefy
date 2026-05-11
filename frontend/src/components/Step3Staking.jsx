@@ -350,11 +350,34 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
   const chainHasAura   = !!chain?.beefyAddresses?.auraBooster;
   const chainHasConvex = !!chain?.beefyAddresses?.convexBooster;
 
-  function isUnavailable(id) {
-    if (id === 'aura')   return !chainHasAura;
-    if (id === 'convex') return !chainHasConvex;
-    return false;
+  // Strategies only available on specific chains (StrategyFactory registry limitation).
+  // 'gauge' requires a Solidly/Velodrome DEX ecosystem (not on Ethereum / BNB / Polygon / Avalanche).
+  // 'stakedao' requires StakeDAO's liquid-locker infrastructure (Ethereum + Optimism only).
+  const LP_CHAIN_RESTRICT = {
+    stakedao: { chainIds: new Set([1, 10]),             label: 'Ethereum · Optimism only' },
+    gauge:    { chainIds: new Set([10, 8453, 42161, 250]), label: 'Optimism · Base · Arbitrum · Fantom only' },
+  };
+
+  function unavailableReason(id) {
+    if (id === 'aura'   && !chainHasAura)   return 'No Aura Booster on this chain';
+    if (id === 'convex' && !chainHasConvex) return 'No Convex Booster on this chain';
+    const restrict = LP_CHAIN_RESTRICT[id];
+    if (restrict && !restrict.chainIds.has(form.chainId)) return restrict.label;
+    return null;
   }
+
+  function isUnavailable(id) { return unavailableReason(id) !== null; }
+
+  // Auto-reset strategy to 'chef' when the saved strategyType is incompatible with the
+  // current chain (e.g. user picked StakeDAO on Ethereum, backed up, switched to Arbitrum).
+  useEffect(() => {
+    if (!isSingleAsset && isUnavailable(stratType)) {
+      setStratType('chef');
+      setStatus('');
+      setMsg('');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.chainId]);
 
   /* ── canProceed ───────────────────────────────────────────────────────────── */
   const validationOk   = status === 'ok';
@@ -493,18 +516,20 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         /* LP strategies: existing 3×2 grid */
         <div style={{ marginBottom: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
           {STRATEGY_OPTS.map(opt => {
-            const unavailable = isUnavailable(opt.id);
+            const reason = unavailableReason(opt.id);
+            const unavailable = reason !== null;
             return (
               <button
                 key={opt.id}
                 onClick={() => !unavailable && handleTypeChange(opt.id)}
                 className={`btn ${stratType === opt.id ? 'btn--gold' : ''}`}
                 disabled={unavailable}
-                style={{ flexDirection: 'column', display: 'flex', gap: '4px', opacity: unavailable ? 0.4 : 1 }}
+                title={unavailable ? reason : undefined}
+                style={{ flexDirection: 'column', display: 'flex', gap: '4px', opacity: unavailable ? 0.35 : 1 }}
               >
                 <div style={{ fontSize: '9px' }}>{opt.label}</div>
                 <div style={{ fontSize: '6px', fontFamily: 'sans-serif', opacity: 0.7 }}>
-                  {unavailable ? 'Not on this chain' : opt.desc}
+                  {unavailable ? reason : opt.desc}
                 </div>
               </button>
             );
