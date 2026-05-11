@@ -20,6 +20,8 @@ const SINGLE_ASSET_OPTS = [
   { id: 'aave',     label: '👻 AAVE',        desc: 'Aave v3 supply-only (via aToken)'                 },
   { id: 'compound', label: '🏦 COMPOUND V3', desc: 'Compound V3 Comet supply'                         },
   { id: 'silov2',   label: '🏦 SILO V2',     desc: 'Silo V2 lending market (ERC-4626 compatible)'     },
+  { id: 'pendle',   label: '🌀 PENDLE',      desc: 'Pendle PT/SY/LP token — hold + harvest rewards'  },
+  { id: 'tokemak',  label: '⚡ TOKEMAK',     desc: 'Tokemak staking — want auto-derived from rewarder'},
 ];
 
 // LP type → recommended strategy type(s) — shown as a suggestion banner in the UI
@@ -50,7 +52,7 @@ const NEEDS_POOL_ID = new Set(['chef', 'aura', 'convex']);
 const AUTO_POOL_ID = new Set(['aura', 'convex']);
 
 // Single-asset strategy IDs — shown when lpType === 'single'
-const SINGLE_ASSET_IDS = new Set(['erc4626', 'morpho', 'aave', 'compound', 'silov2']);
+const SINGLE_ASSET_IDS = new Set(['erc4626', 'morpho', 'aave', 'compound', 'silov2', 'pendle', 'tokemak']);
 
 // Default strategy for each token type
 function defaultStrategyType(lpType) {
@@ -158,8 +160,19 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedStaking, stratType, form.want, form.chainId]);
 
+  /* ── Pendle: no staking address needed — auto-pass validation on type select ── */
+  useEffect(() => {
+    if (stratType !== 'pendle') return;
+    setStatus('ok');
+    setMsg('Pendle strategy ready — no staking contract required');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stratType]);
+
   /* ── main staking validation ──────────────────────────────────────────────── */
   useEffect(() => {
+    // Pendle has no staking address — handled by the effect above
+    if (stratType === 'pendle') return;
+
     if (!debouncedStaking || debouncedStaking.length < 42 || !form.chainId) return;
 
     // LP strategies that require pool ID: skip until pool ID is set
@@ -179,6 +192,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
       else if (stratType === 'morpho')   validate = api.validateERC4626(form.chainId, debouncedStaking, want); // same interface
       else if (stratType === 'aave')     validate = api.validateAave(form.chainId, debouncedStaking, want);
       else if (stratType === 'compound') validate = api.validateCompound(form.chainId, debouncedStaking, want);
+      else if (stratType === 'tokemak')  validate = api.validateTokemak(form.chainId, debouncedStaking);
       else                               validate = api.validateSiloV2(form.chainId, debouncedStaking, want);
     } else if (stratType === 'chef')       { validate = api.validateChef(form.chainId, debouncedStaking, poolId); }
     else if   (stratType === 'gauge')      { validate = api.validateGauge(form.chainId, debouncedStaking); }
@@ -203,6 +217,17 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
       } else if (stratType === 'silov2') {
         const u = res.underlying;
         setMsg(`Silo V2 OK · underlying: ${u ? u.slice(0, 10) + '…' : '✓'}`);
+      } else if (stratType === 'tokemak') {
+        const { stakingToken, underlying, rewardToken } = res;
+        setMsg(`Rewarder OK · want: ${stakingToken ? stakingToken.slice(0, 10) + '…' : '✓'} · reward: ${rewardToken ? rewardToken.slice(0, 10) + '…' : '?'}`);
+        // Auto-update form.want to the strategy-derived staking token
+        if (stakingToken) {
+          setForm(f => ({
+            ...f,
+            want:         stakingToken,
+            depositToken: underlying || stakingToken,
+          }));
+        }
       } else {
         // LP strategies
         const lpToken = res.lpInPool || res.stakingToken;
@@ -248,7 +273,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
           merkl:               (stratType === 'erc4626' || stratType === 'morpho') ? (merklClaimer.trim() || undefined) : undefined,
           compoundDistributor: stratType === 'compound' ? compoundDistributor.trim() : undefined,
           siloGauge:           stratType === 'silov2'   ? (siloGauge.trim() || undefined) : undefined,
-          harvestOnDeposit:    (stratType === 'erc4626' || stratType === 'morpho' || stratType === 'aave') ? harvestOnDeposit : undefined,
+          harvestOnDeposit:    (stratType === 'erc4626' || stratType === 'morpho' || stratType === 'aave' || stratType === 'pendle') ? harvestOnDeposit : undefined,
           // Clear LP strategy fields
           poolId: undefined, pendingRewardsFunctionName: undefined, isStable: undefined, rewardPool: undefined,
           curvePool: undefined, coinIndex: undefined, nCoins: undefined, convexCoin: undefined,
@@ -337,7 +362,8 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
   // CompoundV3 needs distributor address in addition to staking validation
   const compoundReady  = validationOk && compoundDistributor.length >= 42;
   const canProceed =
-    SINGLE_ASSET_IDS.has(stratType) && stratType !== 'compound' && validationOk ||
+    stratType === 'pendle'                                              ||   // no staking contract needed
+    SINGLE_ASSET_IDS.has(stratType) && stratType !== 'compound' && stratType !== 'pendle' && validationOk ||
     stratType === 'compound'                        && compoundReady              ||
     (stratType === 'chef' || stratType === 'gauge') && validationOk              ||
     stratType === 'aura'                            && validationOk              ||
@@ -349,11 +375,12 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
       setForm(f => ({
         ...f,
         strategyType: stratType,
-        staking:      stakingAddr,
+        // Pendle has no staking contract; Tokemak uses the rewarder address
+        staking: stratType === 'pendle' ? undefined : stakingAddr,
         merkl:               (stratType === 'erc4626' || stratType === 'morpho') ? (merklClaimer.trim() || undefined) : undefined,
         compoundDistributor: stratType === 'compound' ? compoundDistributor.trim() : undefined,
         siloGauge:           stratType === 'silov2'   ? (siloGauge.trim() || undefined) : undefined,
-        harvestOnDeposit:    (stratType === 'erc4626' || stratType === 'morpho' || stratType === 'aave') ? harvestOnDeposit : undefined,
+        harvestOnDeposit:    (stratType === 'erc4626' || stratType === 'morpho' || stratType === 'aave' || stratType === 'pendle') ? harvestOnDeposit : undefined,
         // Clear LP-only fields
         poolId: undefined, pendingRewardsFunctionName: undefined, isStable: undefined, rewardPool: undefined,
         curvePool: undefined, coinIndex: undefined, nCoins: undefined, convexCoin: undefined,
@@ -384,16 +411,17 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
 
   /* ── staking address label ────────────────────────────────────────────────── */
   const stakingLabel =
-    stratType === 'chef'       ? 'MasterChef Address'      :
-    stratType === 'gauge'      ? 'Gauge Address'            :
-    stratType === 'aura'       ? 'Aura Booster Address'     :
-    stratType === 'convex'     ? 'Convex Booster Address'   :
-    stratType === 'curvegauge' ? 'Curve Gauge Address'      :
-    stratType === 'stakedao'   ? 'StakeDAO Gauge Address'   :
-    stratType === 'erc4626'    ? 'ERC-4626 Vault Address'   :
-    stratType === 'morpho'     ? 'Morpho Blue Vault Address':
-    stratType === 'aave'       ? 'Aave aToken Address'      :
-    stratType === 'compound'   ? 'Compound V3 Comet Address':
+    stratType === 'chef'       ? 'MasterChef Address'         :
+    stratType === 'gauge'      ? 'Gauge Address'               :
+    stratType === 'aura'       ? 'Aura Booster Address'        :
+    stratType === 'convex'     ? 'Convex Booster Address'      :
+    stratType === 'curvegauge' ? 'Curve Gauge Address'         :
+    stratType === 'stakedao'   ? 'StakeDAO Gauge Address'      :
+    stratType === 'erc4626'    ? 'ERC-4626 Vault Address'      :
+    stratType === 'morpho'     ? 'Morpho Blue Vault Address'   :
+    stratType === 'aave'       ? 'Aave aToken Address'         :
+    stratType === 'compound'   ? 'Compound V3 Comet Address'   :
+    stratType === 'tokemak'    ? 'Tokemak Rewarder Address'    :
                                  'Silo V2 Market Address';
 
   /* ── pool ID label ────────────────────────────────────────────────────────── */
@@ -447,7 +475,7 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
 
       {/* Strategy type picker */}
       {isSingleAsset ? (
-        /* Single-asset: 3×2 grid for supply strategies */
+        /* Single-asset: 3-column grid for supply strategies */
         <div style={{ marginBottom: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
           {SINGLE_ASSET_OPTS.map(opt => (
             <button
@@ -504,6 +532,8 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
             {stratType === 'aave'     && '👻 Supplies the asset to Aave v3 and accrues interest via the aToken. Enter the aToken address (e.g. aOptUSDC).'}
             {stratType === 'compound' && '🏦 Supplies the base token to a Compound V3 Comet and auto-claims COMP via the CometRewards distributor.'}
             {stratType === 'silov2'   && '🏦 Supplies the asset to a Silo V2 lending market (ERC-4626 compatible). Optionally stakes in a gauge for extra rewards.'}
+            {stratType === 'pendle'   && '🌀 Holds a Pendle PT, SY, or LP token. No staking contract required — yield comes from token accrual. Configure reward tokens (PENDLE + protocol tokens) in Step 4.'}
+            {stratType === 'tokemak'  && '⚡ Tokemak staking: enter the Rewarder contract address. The strategy auto-derives the staking token (want) and underlying asset from the rewarder on-chain — no need to specify them manually.'}
           </div>
         </PixelBox>
       )}
@@ -542,18 +572,44 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </PixelBox>
       )}
 
-      {/* ── Staking address ─────────────────────────────────────────────────── */}
-      <Field label={stakingLabel} hint={msg} hintType={status}>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-          <input
-            className={`pixel-input ${status === 'error' ? 'error' : ''} ${status === 'ok' ? 'ok' : ''}`}
-            placeholder="0x…"
-            value={stakingAddr}
-            onChange={e => { setStakingAddr(e.target.value); setStatus(''); setMsg(''); }}
-          />
-          {status === 'loading' && <Spinner />}
+      {/* ── Staking address (hidden for Pendle — no staking contract needed) ───── */}
+      {stratType !== 'pendle' && (
+        <Field label={stakingLabel} hint={msg} hintType={status}>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <input
+              className={`pixel-input ${status === 'error' ? 'error' : ''} ${status === 'ok' ? 'ok' : ''}`}
+              placeholder="0x…"
+              value={stakingAddr}
+              onChange={e => { setStakingAddr(e.target.value); setStatus(''); setMsg(''); }}
+            />
+            {status === 'loading' && <Spinner />}
+          </div>
+        </Field>
+      )}
+
+      {/* ── Pendle: auto-pass notice ──────────────────────────────────────────── */}
+      {stratType === 'pendle' && (
+        <div style={{ fontSize: '7px', color: 'var(--green)', marginBottom: '12px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+          ✓ {msg || 'No staking contract required'}
         </div>
-      </Field>
+      )}
+
+      {/* ── Tokemak: show auto-derived want + depositToken after validation ───── */}
+      {stratType === 'tokemak' && status === 'ok' && form.want && (
+        <PixelBox style={{ padding: '10px', marginBottom: '12px' }}>
+          <div style={{ fontSize: '7px', color: '#aaa', lineHeight: '1.8' }}>
+            <div><span style={{ color: 'var(--gold)' }}>Auto-derived want: </span>
+              <span className="addr">{form.want}</span></div>
+            {form.depositToken && form.depositToken !== form.want && (
+              <div><span style={{ color: 'var(--gold)' }}>Auto-derived depositToken: </span>
+                <span className="addr">{form.depositToken}</span></div>
+            )}
+            <div style={{ color: 'var(--cyan)', marginTop: '4px' }}>
+              ℹ These are set by the strategy contract from the rewarder — you do not need to configure them manually.
+            </div>
+          </div>
+        </PixelBox>
+      )}
 
       {/* ── Single-asset: Merkl claimer (ERC4626 / Morpho) ─────────────────── */}
       {isSingleAsset && (stratType === 'erc4626' || stratType === 'morpho') && (
@@ -607,8 +663,8 @@ export function Step3Staking({ form, setForm, onNext, onBack }) {
         </Field>
       )}
 
-      {/* ── Single-asset: harvestOnDeposit toggle (ERC4626 / Morpho / Aave) ── */}
-      {isSingleAsset && (stratType === 'erc4626' || stratType === 'morpho' || stratType === 'aave') && (
+      {/* ── Single-asset: harvestOnDeposit toggle (ERC4626 / Morpho / Aave / Pendle) ── */}
+      {isSingleAsset && (stratType === 'erc4626' || stratType === 'morpho' || stratType === 'aave' || stratType === 'pendle') && (
         <Field
           label="Harvest On Deposit"
           hint={harvestOnDeposit

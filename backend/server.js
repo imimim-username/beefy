@@ -6,7 +6,7 @@ const cors    = require('cors');
 const morgan  = require('morgan');
 
 const { CHAINS }      = require('./chains.js');
-const { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, validateERC4626, validateAToken, validateCompoundComet, validateSiloV2, getCurveCoin, getAllCurveCoins, checkSwapperRoute, suggestRoutes, resolveToken, findPoolByLp, detectRewardTokens } = require('./resolver.js');
+const { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, validateERC4626, validateAToken, validateCompoundComet, validateSiloV2, validateTokemak, getCurveCoin, getAllCurveCoins, checkSwapperRoute, suggestRoutes, resolveToken, findPoolByLp, detectRewardTokens } = require('./resolver.js');
 const { dryRun, execute } = require('./deployer.js');
 const registry = require('./tokenRegistry.js');
 
@@ -177,6 +177,18 @@ app.get('/api/validate-silov2', async (req, res) => {
   try {
     const result = await validateSiloV2(Number(chainId), silo, want || undefined);
     res.json({ ok: result.valid, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// GET /api/validate-tokemak?chainId=1&rewarder=0x...
+app.get('/api/validate-tokemak', async (req, res) => {
+  const { chainId, rewarder } = req.query;
+  if (!chainId || !rewarder) return res.status(400).json({ ok: false, error: 'chainId and rewarder required' });
+  try {
+    const result = await validateTokemak(Number(chainId), rewarder);
+    res.json(result);
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }

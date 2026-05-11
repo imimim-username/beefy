@@ -22,6 +22,7 @@ export const api = {
   validateAave:       (chainId, aToken, want) => req('GET',  `/validate-aave?chainId=${chainId}&aToken=${aToken}${want ? `&want=${want}` : ''}`),
   validateCompound:   (chainId, comet, want)  => req('GET',  `/validate-compound?chainId=${chainId}&comet=${comet}${want ? `&want=${want}` : ''}`),
   validateSiloV2:     (chainId, silo, want)   => req('GET',  `/validate-silov2?chainId=${chainId}&silo=${silo}${want ? `&want=${want}` : ''}`),
+  validateTokemak:    (chainId, rewarder)     => req('GET',  `/validate-tokemak?chainId=${chainId}&rewarder=${rewarder}`),
   curveCoin:          (chainId, pool, idx)    => req('GET',  `/curve-coin?chainId=${chainId}&curvePool=${pool}&coinIndex=${idx}`),
   findPoolId:         (chainId, booster, lp)  => req('GET',  `/find-pool-id?chainId=${chainId}&booster=${booster}&lp=${lp}`),
   rewardTokens:       (chainId, stratType, staking, rewardPool) =>

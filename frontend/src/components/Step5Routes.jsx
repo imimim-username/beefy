@@ -103,7 +103,7 @@ const FACTORY_DESCRIPTIONS = {
 const FACTORY_TYPES = new Set(['aura', 'gauge', 'convex', 'curvegauge', 'stakedao']);
 
 // Single-asset strategies — no route config needed; depositToken = want (set automatically)
-const SINGLE_ASSET_TYPES = new Set(['erc4626', 'morpho', 'aave', 'compound', 'silov2']);
+const SINGLE_ASSET_TYPES = new Set(['erc4626', 'morpho', 'aave', 'compound', 'silov2', 'pendle', 'tokemak']);
 
 // Known major tokens that BeefySwapper commonly has routes for (by lowercase symbol).
 // We can't verify on-chain, but these are standard across Beefy deployments.

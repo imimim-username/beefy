@@ -776,6 +776,39 @@ async function validateSiloV2(chainId, siloAddr, expectedWant) {
   return validateERC4626(chainId, siloAddr, expectedWant);
 }
 
+/**
+ * validateTokemak — confirm a Tokemak rewarder exposes stakingToken() + rewardToken()
+ * and optionally resolve the vault's underlying asset (depositToken).
+ *
+ * Returns: { ok, stakingToken, underlying, rewardToken }
+ * The strategy auto-derives want/depositToken from rewarder, so these are informational.
+ */
+async function validateTokemak(chainId, rewarderAddr) {
+  const provider = getProvider(chainId);
+  const checksummed = ethers.getAddress(rewarderAddr);
+
+  const rewarderAbi = [
+    'function stakingToken() view returns (address)',
+    'function rewardToken() view returns (address)',
+  ];
+  const rewarder = new ethers.Contract(checksummed, rewarderAbi, provider);
+
+  const [stakingToken, rewardToken] = await Promise.all([
+    rewarder.stakingToken(),
+    rewarder.rewardToken(),
+  ]);
+
+  // Try to read the Tokemak vault's underlying asset
+  let underlying = null;
+  try {
+    const vaultAbi = ['function asset() view returns (address)'];
+    const tokemakVault = new ethers.Contract(stakingToken, vaultAbi, provider);
+    underlying = await tokemakVault.asset();
+  } catch {}
+
+  return { ok: true, stakingToken, underlying, rewardToken };
+}
+
 module.exports = {
   resolveLpToken,
   validateChef,
@@ -787,6 +820,7 @@ module.exports = {
   validateAToken,
   validateCompoundComet,
   validateSiloV2,
+  validateTokemak,
   getCurveCoin,
   getAllCurveCoins,
   checkSwapperRoute,
