@@ -11,11 +11,6 @@ Use this file to resume work on the project without conversation history.
 ```
 
 Branch: `main`. Remote: `git@github.com:imimim-username/beefy.git`
-SSH key: `/workspace/extra/github-keys/github_deploy` (ed25519, nanoclaw-bot)
-Push command:
-```bash
-GIT_SSH_COMMAND="ssh -i /workspace/extra/github-keys/github_deploy -o StrictHostKeyChecking=no" git push origin main
-```
 
 ---
 
