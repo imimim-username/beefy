@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { WizardSteps } from './components/PixelBox.jsx';
 import { HelpModal }    from './components/HelpModal.jsx';
+import { SupportedCombosModal } from './components/SupportedCombosModal.jsx';
 import { Step1Network }  from './components/Step1Network.jsx';
 import { Step2LP }       from './components/Step2LP.jsx';
 import { Step3Staking }  from './components/Step3Staking.jsx';
@@ -53,7 +54,8 @@ function loadSavedStep() {
 export default function App() {
   const [step,  setStep]  = useState(() => loadSavedStep());
   const [form,  setForm]  = useState(() => loadSaved());
-  const [showHelp, setShowHelp] = useState(false);
+  const [showHelp,     setShowHelp]     = useState(false);
+  const [showCoverage, setShowCoverage] = useState(false);
 
   // Close help on Escape
   useEffect(() => {
@@ -89,7 +91,8 @@ export default function App() {
 
   return (
     <div className="app-wrap">
-      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showHelp     && <HelpModal          onClose={() => setShowHelp(false)} />}
+      {showCoverage && <SupportedCombosModal onClose={() => setShowCoverage(false)} />}
 
       {/* Header */}
       <div className="app-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -97,22 +100,40 @@ export default function App() {
           <div className="app-title">🐮 BEEFYFINAL</div>
           <div className="app-subtitle">BEEFY VAULT DEPLOYER</div>
         </div>
-        <button
-          onClick={() => setShowHelp(true)}
-          title="Help &amp; Guide"
-          style={{
-            background: 'none',
-            border: '2px solid var(--gold)',
-            color: 'var(--gold)',
-            fontFamily: 'var(--font)',
-            fontSize: '9px',
-            cursor: 'pointer',
-            padding: '5px 9px',
-            lineHeight: 1,
-          }}
-        >
-          ❓
-        </button>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button
+            onClick={() => setShowCoverage(true)}
+            title="Supported chains &amp; strategies"
+            style={{
+              background: 'none',
+              border: '2px solid var(--cyan)',
+              color: 'var(--cyan)',
+              fontFamily: 'var(--font)',
+              fontSize: '9px',
+              cursor: 'pointer',
+              padding: '5px 9px',
+              lineHeight: 1,
+            }}
+          >
+            📋
+          </button>
+          <button
+            onClick={() => setShowHelp(true)}
+            title="Help &amp; Guide"
+            style={{
+              background: 'none',
+              border: '2px solid var(--gold)',
+              color: 'var(--gold)',
+              fontFamily: 'var(--font)',
+              fontSize: '9px',
+              cursor: 'pointer',
+              padding: '5px 9px',
+              lineHeight: 1,
+            }}
+          >
+            ❓
+          </button>
+        </div>
       </div>
 
       {/* Step indicator */}
