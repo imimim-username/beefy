@@ -432,9 +432,22 @@ app.post('/api/deploy/execute', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`\n🎮 beefyFinal proxy listening on http://localhost:${PORT}\n`);
   if (!process.env.DEPLOYER_PK) {
     console.warn('⚠️  DEPLOYER_PK not set — deploy/execute will be blocked until .env is configured');
+  }
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n❌ Port ${PORT} is already in use.\n`);
+    console.error(`   Kill the existing process with:\n`);
+    console.error(`     kill $(lsof -ti tcp:${PORT})\n`);
+    console.error(`   Or set a different port:\n`);
+    console.error(`     PORT=8789 npm run dev\n`);
+    process.exit(1);
+  } else {
+    throw err;
   }
 });
