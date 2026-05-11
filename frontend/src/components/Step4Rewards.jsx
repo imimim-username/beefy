@@ -4,7 +4,7 @@ import { PixelBox, Field, Spinner } from './PixelBox.jsx';
 import { useDebounce } from '../hooks/useDebounce.js';
 
 // Strategy types that support on-chain reward token detection
-const AUTO_DETECT_TYPES = new Set(['gauge', 'convex', 'curvegauge', 'stakedao', 'aura']);
+const AUTO_DETECT_TYPES = new Set(['gauge', 'convex', 'curvegauge', 'stakedao', 'aura', 'silov2', 'tokemak']);
 
 // Primary reward hint per strategy
 const PRIMARY_HINT = {
@@ -41,9 +41,11 @@ export function Step4Rewards({ form, setForm, onNext, onBack }) {
 
   // Auto-detect reward tokens from staking contract
   useEffect(() => {
-    const { chainId, strategyType, staking, rewardPool } = form;
+    const { chainId, strategyType, staking, rewardPool, siloGauge } = form;
     if (!AUTO_DETECT_TYPES.has(strategyType)) return;
     if (!chainId || !staking || staking.length < 42) return;
+    // silov2 needs the gauge address to read rewardToken() — skip until it's set
+    if (strategyType === 'silov2' && (!siloGauge || siloGauge.length < 42)) return;
     // Only run once per unique staking address (avoid re-running on every render)
     if (staking === lastAutoStaking.current) return;
     lastAutoStaking.current = staking;
@@ -51,7 +53,9 @@ export function Step4Rewards({ form, setForm, onNext, onBack }) {
     setAutoDetecting(true);
     setAutoMsg('Scanning staking contract for reward tokens…');
 
-    api.rewardTokens(chainId, strategyType, staking, rewardPool || null)
+    // For silov2 the gauge is the source of rewardToken(), pass it as rewardPool
+    const effectiveRewardPool = strategyType === 'silov2' ? (siloGauge || null) : (rewardPool || null);
+    api.rewardTokens(chainId, strategyType, staking, effectiveRewardPool)
       .then(async res => {
         if (!res.ok || !res.tokens || res.tokens.length === 0) {
           setAutoMsg('No reward tokens auto-detected — add manually below.');
@@ -91,7 +95,7 @@ export function Step4Rewards({ form, setForm, onNext, onBack }) {
         setAutoMsg(`Detection failed: ${e.message}`);
         setAutoDetecting(false);
       });
-  }, [form.staking, form.strategyType, form.chainId, form.rewardPool]); // eslint-disable-line
+  }, [form.staking, form.strategyType, form.chainId, form.rewardPool, form.siloGauge]); // eslint-disable-line
 
   // Auto-resolve new address typed in the "Add Token" input
   useEffect(() => {

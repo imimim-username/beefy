@@ -637,6 +637,25 @@ async function detectRewardTokens(chainId, stratType, stakingAddress, rewardPool
     rawAddresses = await getConvexRewardAddresses(chainId, rewardPool);
   } else if (stratType === 'curvegauge' || stratType === 'stakedao') {
     rawAddresses = await getCurveGaugeRewardAddresses(chainId, stakingAddress);
+  } else if (stratType === 'silov2') {
+    // rewardPool is the siloGauge address — read its rewardToken()
+    if (!rewardPool) return [];
+    try {
+      const provider = getProvider(chainId);
+      const gauge = new ethers.Contract(ethers.getAddress(rewardPool),
+        ['function rewardToken() view returns (address)'], provider);
+      const addr = await gauge.rewardToken();
+      if (addr && addr !== ethers.ZeroAddress) rawAddresses = [ethers.getAddress(addr)];
+    } catch (_) {}
+  } else if (stratType === 'tokemak') {
+    // stakingAddress is the rewarder — read its rewardToken()
+    try {
+      const provider = getProvider(chainId);
+      const rewarder = new ethers.Contract(ethers.getAddress(stakingAddress),
+        ['function rewardToken() view returns (address)'], provider);
+      const addr = await rewarder.rewardToken();
+      if (addr && addr !== ethers.ZeroAddress) rawAddresses = [ethers.getAddress(addr)];
+    } catch (_) {}
   }
   // chef: too variable to auto-detect reliably — skip
 
