@@ -1,6 +1,10 @@
 /**
  * vaultName.js — pure utility functions for vault name / moo-token suggestion.
  * Extracted from Step6VaultName.jsx so they can be unit-tested without React.
+ *
+ * Beefy naming conventions (verified against deployed contracts and beefy-v2 configs):
+ *   ERC-20 name   → "Moo {ShortPlatform} {Pair}"   e.g. "Moo Aero msETH-ETH"
+ *   ERC-20 symbol → "moo{PlatformCamel}{Pair}"      e.g. "mooAeromsETH-ETH"
  */
 
 /**
@@ -47,8 +51,8 @@ export function toMooSymbol(poolName) {
 }
 
 /**
- * Short chain name suffix used in moo-token symbols.
- * Matches the abbreviations seen in Beefy's published vault configs.
+ * Short chain name used in moo-token symbols (camelCase, no spaces).
+ * Matches the abbreviations most commonly seen in Beefy's earnedToken field.
  */
 const CHAIN_SHORT = {
   1:     'Eth',
@@ -62,34 +66,33 @@ const CHAIN_SHORT = {
 };
 
 /**
- * Return the PascalCase platform prefix for the moo-token symbol.
+ * Return the camelCase platform prefix for the moo-token symbol.
  *
- * Examples (by strategyType, chainId):
- *   gauge  / Optimism → "VelodromeOp"
- *   gauge  / Base     → "AerodromeBase"
- *   gauge  / Fantom   → "SolidlyFtm"
- *   chef   / BSC      → "Bsc"  (DEX name unknown; user should customise)
- *   convex / Ethereum → "CurveEth"
- *   aura   / Arbitrum → "AuraArb"
- *   aave   / Optimism → "AaveV3Op"
+ * Key conventions verified against beefy-v2 earnedToken field:
+ *   - Convex vaults use "Curve" prefix (Convex farms Curve LPs — Beefy labels by AMM)
+ *   - Velodrome (Op) → "VeloV2"   Aerodrome (Base) → "Aero"
+ *   - Aura on Ethereum → "BalancerEthereum"  Aura on L2 → "Aura{Chain}"
+ *   - Silo V2 → "SiloV2{Chain}"
  */
 export function platformPrefix(stratType, chainId) {
   const c = CHAIN_SHORT[chainId] || '';
   switch (stratType) {
     case 'gauge':
-      if (chainId === 10)   return `VelodromeOp`;
-      if (chainId === 8453) return `AerodromeBase`;
+      if (chainId === 10)   return 'VeloV2';
+      if (chainId === 8453) return 'Aero';
       return `Solidly${c}`;
     case 'chef':        return c;           // DEX name unknown — chain only
     case 'convex':
     case 'curvegauge':  return `Curve${c}`;
     case 'stakedao':    return `StakeDao${c}`;
-    case 'aura':        return `Aura${c}`;
+    case 'aura':
+      // Ethereum mainnet Aura vaults use "BalancerEthereum" prefix
+      return chainId === 1 ? 'BalancerEthereum' : `Aura${c}`;
     case 'erc4626':     return c;           // protocol unknown — chain only
     case 'morpho':      return `Morpho${c}`;
     case 'aave':        return `AaveV3${c}`;
     case 'compound':    return `Compound${c}`;
-    case 'silov2':      return `Silo${c}`;
+    case 'silov2':      return `SiloV2${c}`;
     case 'pendle':      return `Pendle${c}`;
     case 'tokemak':     return `Tokemak${c}`;
     default:            return c;
@@ -97,13 +100,38 @@ export function platformPrefix(stratType, chainId) {
 }
 
 /**
+ * Return the short human-readable platform name used in the ERC-20 vault name field.
+ * Format: "Moo {displayName} {pair}"   e.g. "Moo Aero msETH-ETH"
+ *
+ * These are the abbreviated platform names seen in deployed Beefy vault contracts.
+ */
+export function platformDisplayName(stratType, chainId) {
+  switch (stratType) {
+    case 'gauge':
+      if (chainId === 10)   return 'Velo';
+      if (chainId === 8453) return 'Aero';
+      return 'Solidly';
+    case 'chef':        return '';          // DEX name unknown — omit
+    case 'convex':
+    case 'curvegauge':  return 'Curve';
+    case 'stakedao':    return 'StakeDAO';
+    case 'aura':        return 'Aura';
+    case 'erc4626':     return '';          // protocol unknown — omit
+    case 'morpho':      return 'Morpho';
+    case 'aave':        return 'Aave';
+    case 'compound':    return 'Compound';
+    case 'silov2':      return 'Silo';
+    case 'pendle':      return 'Pendle';
+    case 'tokemak':     return 'Tokemak';
+    default:            return '';
+  }
+}
+
+/**
  * Build the auto-suggested vault name and moo-token symbol from form state.
  *
- * Vault name follows Beefy convention: plain asset/pair name with NO "Beefy" prefix.
- *   e.g. "USDC-WETH", "crvUSD-scrvUSD", "WETH"
- *
- * Moo symbol: moo + PascalCase platform prefix + pool name (original case preserved).
- *   e.g. "mooVelodromeOpUSDC-WETH", "mooCurveEthcrvUSD-scrvUSD", "mooAaveV3OpWETH"
+ * ERC-20 name:   "Moo {Platform} {Pair}"  — e.g. "Moo Aero msETH-ETH"
+ * ERC-20 symbol: "moo{PlatformCamel}{Pair}" — e.g. "mooAeromsETH-ETH"
  *
  * @param {{ strategyType?: string, chainId?: number,
  *           lpInfo?: { lpSymbol?: string, token0?: {symbol:string},
@@ -111,18 +139,19 @@ export function platformPrefix(stratType, chainId) {
  * @returns {{ suggestedName: string, suggestedSymbol: string, poolName: string }}
  */
 export function buildSuggestions(form) {
-  const lp       = form?.lpInfo        || {};
-  const stratType = form?.strategyType || '';
+  const lp        = form?.lpInfo        || {};
+  const stratType = form?.strategyType  || '';
   const chainId   = form?.chainId;
 
   const lpSymbolClean = cleanLpSymbol(lp.lpSymbol);
   const tokens = [lp.token0?.symbol, lp.token1?.symbol, lp.token2?.symbol].filter(Boolean);
   const poolName = lpSymbolClean || tokens.join('-') || 'LP';
 
-  // Vault name: just the pool/asset name — no "Beefy" prefix (Beefy convention)
-  const suggestedName = poolName;
+  // ERC-20 name: "Moo {Platform} {Pair}" — platform omitted when unknown (chef/erc4626)
+  const display = platformDisplayName(stratType, chainId);
+  const suggestedName = display ? `Moo ${display} ${poolName}` : `Moo ${poolName}`;
 
-  // Moo symbol: platform prefix + pool name preserving original token case and dashes
+  // ERC-20 symbol: moo + camelCase platform prefix + pool name (original case preserved)
   const prefix = platformPrefix(stratType, chainId);
   const suggestedSymbol = `moo${prefix}${poolName}`;
 
