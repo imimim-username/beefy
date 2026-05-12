@@ -6,7 +6,7 @@ const cors    = require('cors');
 const morgan  = require('morgan');
 
 const { CHAINS }      = require('./chains.js');
-const { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, validateERC4626, validateAToken, validateCompoundComet, validateSiloV2, validateTokemak, getCurveCoin, getAllCurveCoins, checkSwapperRoute, suggestRoutes, resolveToken, findPoolByLp, detectRewardTokens } = require('./resolver.js');
+const { resolveLpToken, validateChef, validateGauge, validateAura, validateConvex, validateCurveGauge, validateERC4626, validateAToken, validateCompoundComet, validateSiloV2, validateTokemak, getCurveCoin, getAllCurveCoins, checkSwapperRoute, checkBeefyOracle, suggestRoutes, resolveToken, findPoolByLp, detectRewardTokens } = require('./resolver.js');
 const { dryRun, execute } = require('./deployer.js');
 const registry = require('./tokenRegistry.js');
 
@@ -392,6 +392,32 @@ app.get('/api/check-swapper-route', async (req, res) => {
 
   try {
     const result = await checkSwapperRoute(cid, depositToken, swapperAddr, nativeAddr);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Check BeefyOracle for a token ─────────────────────────────────────────────
+// GET /api/check-beefy-oracle?chainId=1&token=0x...
+// Returns { configured: bool, subOracleAddr?: string, reason?: string }
+// Critical pre-flight for Convex/CurveGauge strategies: the LP (want) token must have
+// a sub-oracle registered so BeefySwapper can price it during the depositToken→LP swap.
+app.get('/api/check-beefy-oracle', async (req, res) => {
+  const { chainId, token } = req.query;
+  if (!chainId || !token) {
+    return res.status(400).json({ ok: false, error: 'chainId and token required' });
+  }
+  const cid = Number(chainId);
+  const chain = CHAINS[cid];
+  if (!chain) return res.status(400).json({ ok: false, error: 'Unknown chainId' });
+
+  const oracleAddr = chain.beefyAddresses?.beefyOracle;
+  if (!oracleAddr) {
+    return res.json({ ok: true, configured: null, reason: 'No BeefyOracle configured for this chain' });
+  }
+  try {
+    const result = await checkBeefyOracle(cid, token, oracleAddr);
     res.json({ ok: true, ...result });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });

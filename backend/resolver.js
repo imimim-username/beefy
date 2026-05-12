@@ -685,6 +685,12 @@ const BEEFY_SWAPPER_ABI = [
   'function getAmountOut(address fromToken, address toToken, uint256 amountIn) view returns (uint256)',
 ];
 
+// Minimal ABI to check if BeefyOracle has a sub-oracle registered for a token.
+// subOracle returns (address oracle, bytes data) — oracle == address(0) means not configured.
+const BEEFY_ORACLE_ABI = [
+  'function subOracle(address token) view returns (address oracle, bytes data)',
+];
+
 /**
  * Check whether BeefySwapper has a registered swap route from depositToken → nativeToken.
  * Returns { hasRoute: bool, isNative?: bool, amountOut?: string, reason?: string }.
@@ -714,6 +720,32 @@ async function checkSwapperRoute(chainId, depositToken, swapperAddr, nativeAddr)
     return { hasRoute: Number(out) > 0, amountOut: out.toString() };
   } catch (e) {
     return { hasRoute: false, reason: e.shortMessage || e.message };
+  }
+}
+
+/**
+ * Check whether BeefyOracle has a price feed (sub-oracle) registered for a token.
+ * Critical for Convex/CurveGauge factory strategies: the LP (want) token must have an
+ * oracle entry so BeefySwapper can compute slippage when converting depositToken → LP.
+ *
+ * Returns { configured: bool, subOracleAddr?: string, reason?: string }
+ */
+async function checkBeefyOracle(chainId, tokenAddr, oracleAddr) {
+  if (!oracleAddr || !tokenAddr) {
+    return { configured: null, reason: 'No BeefyOracle configured for this chain' };
+  }
+  const provider = getProvider(chainId);
+  const oracle = new ethers.Contract(
+    ethers.getAddress(oracleAddr),
+    BEEFY_ORACLE_ABI,
+    provider,
+  );
+  try {
+    const [subAddr] = await oracle.subOracle(ethers.getAddress(tokenAddr));
+    const configured = subAddr !== ethers.ZeroAddress;
+    return { configured, subOracleAddr: subAddr };
+  } catch (e) {
+    return { configured: false, reason: e.shortMessage || e.message };
   }
 }
 
@@ -844,6 +876,7 @@ module.exports = {
   getCurveCoin,
   getAllCurveCoins,
   checkSwapperRoute,
+  checkBeefyOracle,
   suggestRoutes,
   resolveToken,
   getProvider,

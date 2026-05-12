@@ -50,6 +50,7 @@ const CHAINS = {
       // Required for StrategyBalancerV3 (Aura vaults) — creates audited strategy clones
       strategyFactory:   '0x52941De3eDE234ae6B8608597440Ac3394C64Ae8',
       beefySwapper:      '0x0000830DF56616D58976A12D19d283B40e25BEEF',
+      beefyOracle:       '0xbeEFc6B9d685993b02712D8de8afB29A31c3faf4',
     },
     blockExplorer: 'https://etherscan.io',
     hardhatNetwork: 'ethereum',

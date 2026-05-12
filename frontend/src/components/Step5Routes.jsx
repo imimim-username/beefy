@@ -102,6 +102,13 @@ const FACTORY_DESCRIPTIONS = {
 // All strategy types that use the StrategyFactory + BeefySwapper pattern
 const FACTORY_TYPES = new Set(['aura', 'gauge', 'convex', 'curvegauge', 'stakedao']);
 
+// Strategy types that use StrategyCurveConvexFactory, which routes the final
+// depositToken → LP conversion through BeefySwapper.  This means BeefyOracle
+// MUST have a price feed for the LP (want) token, otherwise every harvest reverts
+// with PriceFailed(lpToken).  StakeDAO uses StrategyStakeDaoV2 which handles LP
+// conversion internally and does NOT have this requirement.
+const NEEDS_LP_ORACLE = new Set(['convex', 'curvegauge']);
+
 // Single-asset strategies — no route config needed; depositToken = want (set automatically)
 const SINGLE_ASSET_TYPES = new Set(['erc4626', 'morpho', 'aave', 'compound', 'silov2', 'pendle', 'tokemak']);
 
@@ -154,9 +161,29 @@ function FactoryDepositTokenStep({ form, setForm }) {
   const [customErr,  setCustomErr]    = useState('');
   const useCustom = selected === '__custom__';
 
-  // Live BeefySwapper route check
+  // Live BeefySwapper route check (depositToken → native)
   const [routeCheck,        setRouteCheck]        = useState(null); // null | { hasRoute, isNative, amountOut, reason }
   const [routeCheckLoading, setRouteCheckLoading] = useState(false);
+
+  // Live BeefyOracle check for the LP (want) token — only relevant for convex/curvegauge.
+  // StrategyCurveConvexFactory routes depositToken→LP through BeefySwapper, which needs
+  // getFreshPrice(lpToken) to compute slippage.  If the LP oracle is missing, harvest
+  // always reverts with PriceFailed(lpToken) regardless of which depositToken you pick.
+  const needsLpOracle = NEEDS_LP_ORACLE.has(form.strategyType);
+  const lpToken       = form.want; // the Curve LP token address
+  const [lpOracleCheck,        setLpOracleCheck]        = useState(null); // null | { configured, subOracleAddr, reason }
+  const [lpOracleCheckLoading, setLpOracleCheckLoading] = useState(false);
+
+  useEffect(() => {
+    if (!needsLpOracle || !lpToken || !form.chainId) return;
+    setLpOracleCheck(null);
+    setLpOracleCheckLoading(true);
+    api.checkBeefyOracle(form.chainId, lpToken)
+      .then(res => { if (res.ok !== false) setLpOracleCheck(res); })
+      .catch(() => {})
+      .finally(() => setLpOracleCheckLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsLpOracle, lpToken, form.chainId]);
 
   useEffect(() => {
     // Pre-select native token on first render if not already set
@@ -335,6 +362,74 @@ function FactoryDepositTokenStep({ form, setForm }) {
           {isNative(selected)
             ? ' — strategy will deposit directly without an extra swap ✓'
             : ' — strategy will swap native → this token on each harvest'}
+        </div>
+      )}
+
+      {/* ── LP oracle check — Convex / CurveGauge only ───────────────────────── */}
+      {needsLpOracle && (
+        <div style={{ marginTop: '16px' }}>
+          <div style={{ fontSize: '6px', color: '#888', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px' }}>
+            BeefyOracle LP Token Check
+          </div>
+
+          {lpOracleCheckLoading && (
+            <div style={{ fontSize: '7px', color: '#888', display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <Spinner /> Checking BeefyOracle for LP token on-chain…
+            </div>
+          )}
+
+          {!lpOracleCheckLoading && lpOracleCheck && lpOracleCheck.configured === true && (
+            <div style={{
+              fontSize: '7px', color: 'var(--green)',
+              border: '1px solid var(--green)', padding: '8px 10px',
+              background: 'rgba(0,255,100,0.04)',
+            }}>
+              ✓ <strong>LP token oracle confirmed</strong> — BeefyOracle has a price feed for this LP token.
+              The strategy can compute slippage and harvest normally.
+            </div>
+          )}
+
+          {!lpOracleCheckLoading && lpOracleCheck && lpOracleCheck.configured === false && (
+            <div style={{
+              fontSize: '7px', color: 'var(--red)',
+              border: '2px solid var(--red)', padding: '10px 12px',
+              background: 'rgba(255,40,40,0.06)', lineHeight: '1.8',
+            }}>
+              <div style={{ fontSize: '8px', fontWeight: 'bold', marginBottom: '6px' }}>
+                ⛔ HARVEST WILL FAIL — LP token not in BeefyOracle
+              </div>
+              <strong>StrategyCurveConvexFactory</strong> routes the final{' '}
+              <code style={{ color: 'var(--cyan)', fontFamily: 'monospace' }}>depositToken → LP</code>{' '}
+              swap through BeefySwapper. BeefySwapper calls{' '}
+              <code style={{ color: 'var(--cyan)', fontFamily: 'monospace' }}>getFreshPrice(lpToken)</code>{' '}
+              to compute slippage protection — but <strong>this LP token has no sub-oracle registered</strong>.
+              Every harvest will revert with{' '}
+              <code style={{ color: 'var(--gold)', fontFamily: 'monospace' }}>PriceFailed({lpToken ? lpToken.slice(0, 10) + '…' : '?'})</code>.
+              <br /><br />
+              <strong style={{ color: 'var(--gold)' }}>This is a Beefy infrastructure requirement — you cannot fix it in this wizard.</strong>
+              <br /><br />
+              <strong>To fix:</strong> Ask the Beefy team (Discord <code style={{ color: 'var(--cyan)', fontFamily: 'monospace' }}>#🏭-beefy-factories</code>) to register:
+              <br />
+              1. A Curve virtual-price oracle for this LP token in{' '}
+              <code style={{ color: 'var(--cyan)', fontFamily: 'monospace' }}>BeefyOracle.setOracle(lpToken, curveAdapter, poolData)</code>
+              <br />
+              2. A Curve <code style={{ color: 'var(--cyan)', fontFamily: 'monospace' }}>add_liquidity</code> route from your deposit token to LP in BeefySwapper
+              <br /><br />
+              <strong>Alternatively:</strong> Use the <strong>StakeDAO</strong> strategy type for this pool — it handles
+              LP conversion internally and does not depend on BeefyOracle for the LP token.
+              {lpToken && (
+                <div style={{ marginTop: '8px', color: '#888' }}>
+                  LP token: <code style={{ color: 'var(--cyan)', fontFamily: 'monospace', fontSize: '6px' }}>{lpToken}</code>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!lpOracleCheckLoading && lpOracleCheck && lpOracleCheck.configured === null && (
+            <div style={{ fontSize: '7px', color: '#888' }}>
+              ℹ {lpOracleCheck.reason || 'BeefyOracle not available on this chain — skipping check.'}
+            </div>
+          )}
         </div>
       )}
 

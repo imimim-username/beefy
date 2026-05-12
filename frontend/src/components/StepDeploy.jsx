@@ -111,7 +111,15 @@ const ERROR_HINTS = [
     step: null,
   },
   {
-    patterns: [/route/i, /swap/i, /BeefySwapper/i],
+    // PriceFailed is thrown by BeefySwapper when getFreshPrice(token) fails because
+    // the token has no sub-oracle registered in BeefyOracle.  For Convex/CurveGauge
+    // strategies this almost always means the LP (want) token is not in BeefyOracle.
+    patterns: [/PriceFailed/i, /getFreshPrice/i, /price.*failed/i, /oracle.*lp/i, /lp.*oracle/i],
+    hint: 'BeefyOracle has no price feed for the LP token. StrategyCurveConvexFactory needs getFreshPrice(lpToken) to compute slippage when swapping depositToken → LP. Ask the Beefy team to register a Curve virtual-price oracle for this LP token and a BeefySwapper add_liquidity route. As a workaround, use the StakeDAO strategy type — it handles LP conversion internally without needing an LP oracle.',
+    step: null,
+  },
+  {
+    patterns: [/route/i, /swap/i, /BeefySwapper/i, /NoSwapData/i],
     hint: 'A swap route is not configured in BeefySwapper. Go back to Step 5 and choose a deposit token with a registered route, or ask the Beefy team to add the route.',
     step: 4,
   },
@@ -780,6 +788,11 @@ License          : MIT (3)`}</Code>
   );
 }
 
+// Strategy types where the LP (want) token must have a BeefyOracle sub-oracle.
+// StrategyCurveConvexFactory routes depositToken→LP through BeefySwapper which calls
+// getFreshPrice(lpToken) — without an LP oracle every harvest reverts PriceFailed.
+const NEEDS_LP_ORACLE_PREFLIGHT = new Set(['convex', 'curvegauge']);
+
 // ─── main deploy step ─────────────────────────────────────────────────────────
 
 export function StepDeploy({ form, dryResult, onBack, onReset }) {
@@ -787,6 +800,18 @@ export function StepDeploy({ form, dryResult, onBack, onReset }) {
   const [loading, setLoading] = useState(false);
   const [result,  setResult]  = useState(dryResult || null);
   const [error,   setError]   = useState('');
+
+  // Pre-flight: LP oracle check for Convex/CurveGauge strategies
+  const needsLpPreflight = NEEDS_LP_ORACLE_PREFLIGHT.has(form.strategyType);
+  const [lpPreflight, setLpPreflight] = React.useState(null); // null | { configured, subOracleAddr, reason }
+
+  React.useEffect(() => {
+    if (!needsLpPreflight || !form.want || !form.chainId) return;
+    api.checkBeefyOracle(form.chainId, form.want)
+      .then(res => { if (res.ok !== false) setLpPreflight(res); })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsLpPreflight, form.want, form.chainId]);
 
   function buildPayload(isDryRun) {
     const chain = CHAINS_INFO[form.chainId];
@@ -850,9 +875,53 @@ export function StepDeploy({ form, dryResult, onBack, onReset }) {
 
       {/* Phase: idle / start dry-run */}
       {phase === 'idle' && (
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button className="btn" onClick={onBack}>◀ BACK</button>
-          <button className="btn btn--gold" onClick={runDryRun}>🧪 START DRY-RUN</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+          {/* ── LP Oracle pre-flight warning (Convex / CurveGauge only) ───────── */}
+          {needsLpPreflight && lpPreflight && lpPreflight.configured === false && (
+            <PixelBox variant="red" style={{ padding: '12px' }}>
+              <div style={{ fontSize: '8px', color: 'var(--red)', fontWeight: 'bold', marginBottom: '6px' }}>
+                ⛔ PRE-FLIGHT FAILURE — Harvest will revert after deployment
+              </div>
+              <div style={{ fontSize: '7px', color: '#f88', lineHeight: '1.8' }}>
+                <strong>BeefyOracle has no price feed for the LP (want) token.</strong>
+                <br />
+                <code style={{ fontFamily: 'monospace', color: 'var(--gold)', fontSize: '6px' }}>{form.want}</code>
+                <br /><br />
+                <strong>StrategyCurveConvexFactory</strong> uses BeefySwapper to convert{' '}
+                <code style={{ fontFamily: 'monospace', color: 'var(--cyan)' }}>depositToken → LP</code> on every harvest.
+                BeefySwapper calls <code style={{ fontFamily: 'monospace', color: 'var(--cyan)' }}>getFreshPrice(lpToken)</code>{' '}
+                to compute slippage — but this LP token has no registered sub-oracle.
+                Harvest will always revert with{' '}
+                <code style={{ fontFamily: 'monospace', color: 'var(--gold)' }}>PriceFailed(lpToken)</code>.
+                <br /><br />
+                <strong style={{ color: 'var(--gold)' }}>You can still deploy the vault and strategy contracts,</strong>{' '}
+                but no one will be able to harvest until the Beefy team registers:
+                <br />
+                1. A Curve virtual-price oracle for the LP token in BeefyOracle
+                <br />
+                2. A Curve <code style={{ fontFamily: 'monospace', color: 'var(--cyan)' }}>add_liquidity</code> route in BeefySwapper
+                <br /><br />
+                <strong>Recommended action:</strong> Contact the Beefy team in Discord{' '}
+                <code style={{ fontFamily: 'monospace', color: 'var(--cyan)' }}>#🏭-beefy-factories</code>{' '}
+                before deploying, or switch to the <strong>StakeDAO</strong> strategy type
+                (it handles LP conversion internally without needing an LP oracle).
+              </div>
+            </PixelBox>
+          )}
+
+          {needsLpPreflight && lpPreflight && lpPreflight.configured === true && (
+            <PixelBox variant="green" style={{ padding: '8px 12px' }}>
+              <div style={{ fontSize: '7px', color: 'var(--green)' }}>
+                ✓ <strong>Pre-flight passed</strong> — BeefyOracle has a price feed for the LP token. Harvest should work.
+              </div>
+            </PixelBox>
+          )}
+
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button className="btn" onClick={onBack}>◀ BACK</button>
+            <button className="btn btn--gold" onClick={runDryRun}>🧪 START DRY-RUN</button>
+          </div>
         </div>
       )}
 

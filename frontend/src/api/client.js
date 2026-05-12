@@ -35,6 +35,7 @@ export const api = {
   checkExistingVault: (chainId, lp)          => req('GET', `/check-existing-vault?chainId=${chainId}&lp=${lp}`),
   curveCoins:         (chainId, curvePool)    => req('GET', `/curve-coins?chainId=${chainId}&curvePool=${curvePool}`),
   checkSwapperRoute:  (chainId, depositToken) => req('GET', `/check-swapper-route?chainId=${chainId}&depositToken=${depositToken}`),
+  checkBeefyOracle:   (chainId, token)        => req('GET', `/check-beefy-oracle?chainId=${chainId}&token=${token}`),
   dryRun:         (body)              => req('POST', '/deploy/dryrun', body),
   execute:        (body)              => req('POST', '/deploy/execute', body),
 };
