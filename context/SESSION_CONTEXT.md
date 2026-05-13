@@ -417,8 +417,170 @@ A second PR to `beefyfinance/beefy-api` adds oracle/pricing config. Without it t
 
 ---
 
+## Convex / CurveGauge harvest failure — root causes (critical)
+
+### Problem: `PriceFailed(lpToken)` on every Convex/CurveGauge factory harvest
+
+`StrategyCurveConvexFactory` harvest flow:
+1. `_claim()` → `rewardPool.getReward()` → claims CRV (+ CVX stash + extras)
+2. `_swapRewardsToNative()` → BeefySwapper swaps each reward → WETH ✅
+3. `_swapNativeToWant()`:
+   - WETH → depositToken (BeefySwapper) ✅
+   - depositToken → LP token (BeefySwapper) ← **FAILS** with `PriceFailed(lpToken)`
+4. `deposit()` → stakes new LP in Convex
+
+**Root cause**: BeefySwapper calls `BeefyOracle.getFreshPrice(lpToken)` to compute slippage
+for the final `depositToken → LP` swap. If the Curve LP token has no sub-oracle registered
+in BeefyOracle, this reverts. **No Curve LP tokens are currently registered in BeefyOracle
+on Ethereum mainnet.**
+
+### What the Beefy team must do per pool (before ANY harvest will work)
+
+1. Call `BeefyOracle.setOracle(lpToken, curveVirtualPriceOracleAdapter, poolData)` — registers
+   a sub-oracle that returns the Curve pool's `get_virtual_price()`.
+2. Register a `BeefySwapper` route for `depositToken → lpToken` via Curve `add_liquidity`.
+
+Both must be done by the Beefy core team; deployers cannot do this themselves.
+
+### StrategyStakeDaoV2 — NOT affected
+
+`StrategyStakeDaoV2` calls Curve's `add_liquidity()` directly for LP conversion — it does NOT
+use BeefySwapper for this step and therefore does NOT need the LP token oracle. StakeDAO
+strategies should be used as a workaround while waiting for Beefy team to register LP oracles.
+
+### callReward() = 0 — separate issue
+
+`callReward()` returns 0 when `balanceOfPool() = 0` — no LP is staked in Convex because
+no one has deposited into the vault yet. This is not a bug; seed the vault with a test deposit
+to get non-zero `callReward()` readings.
+
+---
+
+## BeefyOracle integration (added this session)
+
+### Key addresses
+
+| Name | Address | Network |
+|---|---|---|
+| BeefySwapper | `0x0000830DF56616D58976A12D19d283B40e25BEEF` | Ethereum (1) |
+| BeefyOracle | `0xbeEFc6B9d685993b02712D8de8afB29A31c3faf4` | Ethereum (1) |
+
+### ABI for oracle check
+
+```javascript
+const BEEFY_ORACLE_ABI = [
+  'function subOracle(address token) view returns (address oracle, bytes data)',
+];
+// If subOracle(lpToken)[0] === ZeroAddress → not registered → harvest will PriceFailed
+```
+
+### New backend files / changes
+
+**`backend/chains.js`** — added `beefyOracle` to Ethereum `beefyAddresses`:
+```javascript
+beefyOracle: '0xbeEFc6B9d685993b02712D8de8afB29A31c3faf4',
+```
+
+**`backend/resolver.js`** — added `checkBeefyOracle(chainId, tokenAddr, oracleAddr)` function
+and exported it.
+
+**`backend/server.js`** — added endpoint:
+```
+GET /api/check-beefy-oracle?chainId=&token=
+→ { ok, configured: bool|null, subOracleAddr?, reason? }
+```
+`configured: null` = chain has no BeefyOracle configured (not an error).
+`configured: false` = oracle not registered for this token → harvest WILL fail.
+`configured: true` = oracle registered ✅.
+
+**`frontend/src/api/client.js`** — added:
+```javascript
+checkBeefyOracle: (chainId, token) => req('GET', `/check-beefy-oracle?chainId=${chainId}&token=${token}`),
+```
+
+### New frontend warnings
+
+**`Step5Routes.jsx`** — `FactoryDepositTokenStep` (shown when selecting depositToken for
+convex/curvegauge strategies): checks LP oracle as soon as `want` is known. Shows:
+- 🔴 Red blocking warning if oracle missing (explains PriceFailed, what team must do, suggests StakeDAO)
+- 🟢 Green confirmation if oracle registered
+- Gray info if chain has no oracle
+
+Set `NEEDS_LP_ORACLE = new Set(['convex', 'curvegauge'])` to control which strategy types
+trigger this check.
+
+**`StepDeploy.jsx`** — pre-flight panel shown before the dry-run button for convex/curvegauge:
+- 🔴 Blocking red banner if oracle missing (same explanation + StakeDAO suggestion)
+- 🟢 Green confirmation if oracle registered
+
+Also added `PriceFailed` to `ERROR_HINTS` so it's parsed and explained if it appears in
+dry-run output. Pattern matches: `/PriceFailed/i`, `/getFreshPrice/i`, `/price.*failed/i`,
+`/oracle.*lp/i`, `/lp.*oracle/i`.
+
+---
+
+## CVX reward distribution status (Ethereum Convex pools, as of May 2026)
+
+CVX extraRewards stash contracts for all major Curve pools either:
+- Expired in June 2023 (PID 179, 182, 188, 189)
+- Were never funded (PID 270, 284)
+- Never existed (PID 40 — MIM/3Crv)
+
+99.967% of the 100M CVX max supply is already minted (cap expected ~Sep-Oct 2026).
+~207 CVX/day still minting at 1/1000 CRV ratio. **CVX yield = 0 for all candidate pools.**
+This is NOT a bug — there's simply nothing to claim. Not a blocker for deployment.
+
+### Old vs new strategy CVX handling
+
+Old strategies (e.g. `convex-tricrv`): use `unirouter 0x8d6ce71a…` with hardcoded
+CVX→WETH route via UniswapV3 CVX/ETH 1% pool. These DO harvest CVX.
+
+New factory strategies (`StrategyCurveConvexFactory`): use only `BeefySwapper` which
+currently has **no CVX→WETH route**. But since CVX stash is expired for all current
+candidates, this is moot for now.
+
+---
+
+## Candidate Convex pools — verified infrastructure (May 2026)
+
+All pools below have: active CRV emissions, expired/unfunded CVX stash, USDC/USDT/WETH
+deposit token in BeefySwapper, CRV→WETH oracle + route configured. **All blocked by missing
+LP oracle** — needs Beefy team action per pool.
+
+| Pool | Convex PID | LP Token | depositToken |
+|---|---|---|---|
+| crvUSD/USDC | 182 | `0x4dece678ceceb27446b35c672dc7d61f30bad69e` | USDC |
+| crvUSD/USDT | 179 | `0x390f3595bca2df7d23783dfd126427cceb997bf4` | USDT |
+| TricryptoUSDT | 188 | `0xf5f5b97624542d72a9e06f04804bf81baa15e2b4` | USDT |
+| TricryptoUSDC | 189 | `0x7f86bf177dd4f3494b841a37e810a34dd56c829b` | USDC |
+| MIM/3Crv | 40 | `0x5a6a4d54456819380173272a5e8e9b9904bdf41b` | USDC |
+| alETH/WETH | 284 | `0xc4c319e2d4d66cca4464c0c2b32c9bd23ebe784e` | WETH |
+| PayPool | 270 | `0x383e6b4437b59fff47b619cba855ca29342a8559` | USDC |
+
+---
+
+## Deployed vaults — failed harvests
+
+### FRAX/USDe Convex vault (test deployment — do not list)
+
+- Vault: `0xdddFe89905Bf77D3F6ee79dD8f1ab7f41C534387`
+- Strategy: `0xcD5db5D4cBA5a85f85Ea5590fA4d90caCfB944E7`
+- Issues: FRAX deposit token not in BeefySwapper + LP token not in BeefyOracle
+- Status: harvest will always fail; needs LP oracle registration
+
+### crvUSD/USDC Convex vault (test deployment)
+
+- Vault: `0xd017e6D1078F9Fd50C89cE382e97FF9ca4309E4E`
+- Strategy: `0x9e7Eac285069a072d89D32d74fE733D5e5659217`
+- Issue: LP token `0x4dece678…` not in BeefyOracle → PriceFailed on harvest
+- Tenderly simulation: https://www.tdly.co/shared/simulation/c1918652-b0b2-43b5-9623-3f75afc6bda9
+- Status: deposit token (USDC) is wired; only LP oracle missing
+
+---
+
 ## Recent changes (newest first)
 
+- feat: LP oracle pre-flight checks and PriceFailed warnings (chains.js, resolver.js, server.js, client.js, Step5Routes.jsx, StepDeploy.jsx) — commit 184b806
 - feat: supported chains & strategies coverage modal (SupportedCombosModal.jsx + 📋 button)
 - feat: add ❓ help modal (HelpModal.jsx — 3 tabs: STEPS, STRATEGIES, TIPS)
 - fix: resolver.js — add `lpType: 'solidly'|'univ2'` to Uni-V2/Solidly return (was missing, breaking LP type suggestion in Step3)
